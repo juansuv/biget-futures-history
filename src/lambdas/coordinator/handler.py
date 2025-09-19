@@ -59,7 +59,7 @@ def get_symbols_with_trades(client: Client) -> List[str]:
     try:
         # Get all futures positions (both open and closed)
         # Using mix_get_all_positions to get symbols with any activity
-        positions = client.mix_get_all_positions('umcbl')  # USDT-M futures
+        positions = client.mix_get_symbols_info('umcbl')  # USDT-M futures
         
         symbols = set()
         print(f"Positions data: {positions}")
@@ -69,31 +69,7 @@ def get_symbols_with_trades(client: Client) -> List[str]:
                 if position.get('symbol'):
                     symbols.add(position['symbol'])
         
-        # Also check order history for additional symbols
-        # Get recent order history to find more symbols
-        try:
-            # Get orders from last 30 days
-            import time
-            
-            first_order = get_first_order(client, productType="umcbl")
-            
-            end_time = int(time.time() * 1000)
-            start_time = end_time - (30 * 24 * 60 * 60 * 1000)  # 30 days ago
-            
-            history = client.mix_get_productType_history_orders(
-                productType='umcbl',
-                startTime=str(start_time),
-                endTime=str(end_time),
-                pageSize='100'
-            )
-            if history and 'data' in history and 'orderList' in history['data']:
-                for order in history['data']['orderList']:
-                    if order.get('symbol'):
-                        symbols.add(order['symbol'])
-                        
-        except Exception as e:
-            print(f"Warning: Could not fetch order history: {e}")
-        
+
         return list(symbols)
         
     except Exception as e:
@@ -103,40 +79,6 @@ def get_symbols_with_trades(client: Client) -> List[str]:
 
 
 
-def get_first_order(client, productType="umcbl"):
-    start_time = 1609459200000   # 2021-01-01
-    end_time = int(time.time() * 1000)  # ahora
-    
-    page_size = 100
-    last_end_id = ""
-    first_order = None
-    
-    while True:
-        resp = client.mix_get_productType_history_orders(
-            productType=productType,
-            startTime=start_time,
-            endTime=end_time,
-            pageSize=page_size,
-            lastEndId=last_end_id,
-            isPre=False
-        )
-        
-        order_list = resp.get("data", [])
-        if not order_list:
-            break
-        
-        for order in order_list:
-            if not first_order or int(order["createTime"]) < int(first_order["createTime"]):
-                first_order = order
-        
-        # Avanza al siguiente bloque
-        last_end_id = order_list[-1]["id"]
-    
-    
-    # Uso:
-
-    print("First order:", first_order)
-    return first_order
 
 
 
@@ -161,3 +103,47 @@ def start_step_function(step_function_arn: str, symbols: List[str]) -> None:
     except Exception as e:
         print(f"Error starting Step Function: {e}")
         raise
+    
+    
+def get_all_orders_secuencial(client: Client, productType="umcbl"):
+    start_time = 1514764800000   # 2021-01-01
+    end_time = int(time.time() * 1000)  # ahora
+    page=1
+    page_size = 100
+    last_end_id = ""
+    first_order = None
+    all_orders = []
+    print("Fetching orders...")
+    while True:
+        resp = client.mix_get_productType_history_orders(
+            productType=productType,
+            startTime=start_time,
+            endTime=end_time,
+            pageSize=page_size,
+            lastEndId=last_end_id,
+            isPre=False
+        )
+        resp = resp.get("data", [])
+        order_list = resp.get("orderList", [])
+        flag=resp.get("nextFlag")
+        endId = resp.get("endId")
+        print(f"Response: flag={flag}, endId={endId}")
+        if not order_list:
+            break
+        for order in order_list:
+            all_orders.append(order)
+            if not first_order or int(order["cTime"]) < int(first_order["cTime"]):
+                first_order = order
+        
+        # Avanza al siguiente bloque
+        last_end_id = order_list[-1]["orderId"]
+        page += 1
+    
+    # Uso:
+    with open("/tmp/all_orders.json", "w") as f:
+        json.dump(all_orders, f, indent=2)
+    print(f"Saved {len(all_orders)} orders to /tmp/all_orders_dmcbl.json")
+    
+    print("page:", page)
+    print("First order found:", first_order)
+    return first_order
