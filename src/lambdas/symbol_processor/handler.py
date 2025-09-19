@@ -8,7 +8,9 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     Symbol Processor Lambda: Processes a single symbol to extract all its orders
     """
+    print("Symbol processor lambda invoked")
     try:
+        print(f"Processing event: {event}")
         # Extract symbol from event
         symbol = event.get('symbol')
         if not symbol:
@@ -24,7 +26,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         
         # Extract all orders for this symbol
         orders = get_all_orders_for_symbol(client, symbol)
-        
+        #print(f"Extracted {len(orders)} orders for symbol {symbol}")
         return {
             'statusCode': 200,
             'symbol': symbol,
@@ -54,7 +56,7 @@ def get_all_orders_for_symbol(client: Client, symbol: str) -> List[Dict[str, Any
     try:
         # Calculate time range (last 90 days for comprehensive history)
         end_time = int(time.time() * 1000)
-        start_time = end_time - (90 * 24 * 60 * 60 * 1000)  # 90 days ago
+        start_time = 1514764800000 # 2018-01-01 in milliseconds
         
         last_end_id = ''
         page_count = 0
@@ -79,31 +81,16 @@ def get_all_orders_for_symbol(client: Client, symbol: str) -> List[Dict[str, Any
                     break
                 
                 orders = orders_data['orderList']
+                ()
                 if not orders:
                     break
+                all_orders.extend(orders)
                 
+                #print("all_orders", all_orders)                
                 # Add orders to our collection
-                for order in orders:
-                    # Ensure we only get futures orders
-                    if order.get('productType') in ['umcbl', 'dmcbl', 'cmcbl']:
-                        all_orders.append({
-                            'orderId': order.get('orderId'),
-                            'symbol': order.get('symbol'),
-                            'size': order.get('size'),
-                            'price': order.get('price'),
-                            'side': order.get('side'),
-                            'orderType': order.get('orderType'),
-                            'status': order.get('status'),
-                            'createTime': order.get('createTime'),
-                            'updateTime': order.get('updateTime'),
-                            'fee': order.get('fee'),
-                            'feeCoin': order.get('feeCoin'),
-                            'productType': order.get('productType'),
-                            'marginCoin': order.get('marginCoin'),
-                            'leverage': order.get('leverage'),
-                            'reduceOnly': order.get('reduceOnly'),
-                            'clientOrderId': order.get('clientOrderId')
-                        })
+                # for order in orders:
+                #     # Ensure we only get futures orders
+                #     all_orders.append(order)
                 
                 # Check if there are more pages
                 if 'endId' in orders_data and orders_data['endId']:
@@ -120,8 +107,8 @@ def get_all_orders_for_symbol(client: Client, symbol: str) -> List[Dict[str, Any
                 break
         
         # Sort orders by creation time (newest first)
-        all_orders.sort(key=lambda x: int(x.get('createTime', 0)), reverse=True)
-        
+        #all_orders.sort(key=lambda x: int(x.get('cTime', 0)), reverse=True)
+        print("all_orders", all_orders)
         return all_orders
         
     except Exception as e:

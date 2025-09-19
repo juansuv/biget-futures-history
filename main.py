@@ -22,6 +22,10 @@ class OrderExtractionResponse(BaseModel):
     status: str
     message: str
     data: Optional[Dict[str, Any]] = None
+    
+class SymbolExtractionRequest(BaseModel):
+    symbol: str
+    test_mode: bool = False
 
 @app.get("/", response_model=Dict[str, str])
 async def root():
@@ -74,6 +78,42 @@ async def extract_orders(request: OrderExtractionRequest):
             
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/extract-symbols", response_model=OrderExtractionResponse)
+async def extract_symbols(request: SymbolExtractionRequest):
+    """
+    Endpoint principal para extraer órdenes de Bitget
+    Ejecuta el coordinador Lambda que inicia el Step Function
+    """
+    try:
+        event = {
+            "symbol": request.symbol,
+            "test_mode": request.test_mode
+        }
+        # Execute coordinator Lambda
+        result = symbol_processor_handler(event, None)
+        
+        if result['statusCode'] == 200:
+            #print(f"Symbol processor result: {result}")
+            print("total orders", len(result['orders']))
+            body = result
+            
+            
+            return OrderExtractionResponse(
+                status="success",
+                message="Symbol processed successfully",
+                data=body
+            )
+        else:
+            body = json.loads(result['body'])
+            raise HTTPException(
+                status_code=result['statusCode'],
+                detail=body.get('error', 'Unknown error')
+            )
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/test/coordinator")
 async def test_coordinator():

@@ -5,7 +5,7 @@
     "ProcessSymbolsInParallel": {
       "Type": "Map",
       "ItemsPath": "$.symbols",
-      "MaxConcurrency": 10,
+      "MaxConcurrency": 50,
       "Iterator": {
         "StartAt": "ProcessSingleSymbol",
         "States": {

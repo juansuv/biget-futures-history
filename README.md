@@ -87,6 +87,15 @@ sam build
 sam deploy --guided --stack-name bitget-trading-orders
 ```
 
+### Opción 3: Obtener ARN de Step Function
+```bash
+# Después del despliegue, obtener el ARN:
+aws stepfunctions list-state-machines --query 'stateMachines[?name==`bitget-order-extraction`].stateMachineArn' --output text
+
+# O ver todos los outputs del stack:
+aws cloudformation describe-stacks --stack-name bitget-trading-orders --query 'Stacks[0].Outputs'
+```
+
 ## Uso
 
 ### 1. Ejecutar FastAPI localmente
