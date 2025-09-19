@@ -1,0 +1,14 @@
+{
+    "python.pythonPath": "./venv/bin/python",
+    "python.defaultInterpreterPath": "./venv/bin/python",
+    "cSpell.words": [
+        "pybitget",
+        "Bitget",
+        "umcbl",
+        "dmcbl", 
+        "cmcbl",
+        "USDT",
+        "BTCUSDT",
+        "ETHUSDT"
+    ]
+}

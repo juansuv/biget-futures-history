@@ -1,0 +1,196 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Bitget Trading Orders Extraction using AWS Lambda and Step Functions
+Parameters:
+  BitgetApiKey:
+    Type: String
+    Default: bg_680026a00a63d58058c738c952ce67a2
+    Description: Bitget API Key
+  BitgetSecretKey:
+    Type: String
+    Default: 7abac4a9404e82830db5f9db5e867a8370c7e59dc74e52615c59552d0afbd7c9
+    Description: Bitget Secret Key
+    NoEcho: true
+  BitgetPassphrase:
+    Type: String
+    Default: 22Dominic22
+    Description: Bitget Passphrase
+    NoEcho: true
+Globals:
+  Function:
+    Timeout: 300
+    Runtime: python3.9
+    Environment:
+      Variables:
+        BITGET_API_KEY:
+          Ref: BitgetApiKey
+        BITGET_SECRET_KEY:
+          Ref: BitgetSecretKey
+        BITGET_PASSPHRASE:
+          Ref: BitgetPassphrase
+Resources:
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: lambda.amazonaws.com
+          Action: sts:AssumeRole
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+      - PolicyName: StepFunctionInvokePolicy
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - states:StartExecution
+            Resource:
+              Ref: OrderExtractionStateMachine
+  CoordinatorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: bitget-coordinator
+      CodeUri: CoordinatorFunction
+      Handler: handler.lambda_handler
+      Role:
+        Fn::GetAtt:
+        - LambdaExecutionRole
+        - Arn
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /start-extraction
+            Method: post
+    Metadata:
+      SamResourceId: CoordinatorFunction
+  SymbolProcessorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: bitget-symbol-processor
+      CodeUri: SymbolProcessorFunction
+      Handler: handler.lambda_handler
+      Role:
+        Fn::GetAtt:
+        - LambdaExecutionRole
+        - Arn
+    Metadata:
+      SamResourceId: SymbolProcessorFunction
+  ResultCollectorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: bitget-result-collector
+      CodeUri: ResultCollectorFunction
+      Handler: handler.lambda_handler
+      Role:
+        Fn::GetAtt:
+        - LambdaExecutionRole
+        - Arn
+    Metadata:
+      SamResourceId: ResultCollectorFunction
+  StepFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: states.amazonaws.com
+          Action: sts:AssumeRole
+      Policies:
+      - PolicyName: LambdaInvokePolicy
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - lambda:InvokeFunction
+            Resource:
+            - Fn::GetAtt:
+              - SymbolProcessorFunction
+              - Arn
+            - Fn::GetAtt:
+              - ResultCollectorFunction
+              - Arn
+  OrderExtractionStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: bitget-order-extraction
+      RoleArn:
+        Fn::GetAtt:
+        - StepFunctionRole
+        - Arn
+      DefinitionString:
+        Fn::Sub: "{\n  \"Comment\": \"Parallel processing of Bitget trading symbols\
+          \ to extract orders\",\n  \"StartAt\": \"ProcessSymbolsInParallel\",\n \
+          \ \"States\": {\n    \"ProcessSymbolsInParallel\": {\n      \"Type\": \"\
+          Map\",\n      \"ItemsPath\": \"$.symbols\",\n      \"MaxConcurrency\": 10,\n\
+          \      \"Iterator\": {\n        \"StartAt\": \"ProcessSingleSymbol\",\n\
+          \        \"States\": {\n          \"ProcessSingleSymbol\": {\n         \
+          \   \"Type\": \"Task\",\n            \"Resource\": \"arn:aws:states:::lambda:invoke\"\
+          ,\n            \"Parameters\": {\n              \"FunctionName\": \"${SymbolProcessorFunction.Arn}\"\
+          ,\n              \"Payload\": {\n                \"symbol.$\": \"$\",\n\
+          \                \"timestamp.$\": \"$.timestamp\"\n              }\n   \
+          \         },\n            \"ResultPath\": \"$.result\",\n            \"\
+          End\": true\n          }\n        }\n      },\n      \"ResultPath\": \"\
+          $.parallel_results\",\n      \"Next\": \"CollectResults\"\n    },\n    \"\
+          CollectResults\": {\n      \"Type\": \"Task\",\n      \"Resource\": \"arn:aws:states:::lambda:invoke\"\
+          ,\n      \"Parameters\": {\n        \"FunctionName\": \"${ResultCollectorFunction.Arn}\"\
+          ,\n        \"Payload\": {\n          \"parallel_results.$\": \"$.parallel_results\"\
+          ,\n          \"original_input.$\": \"$\"\n        }\n      },\n      \"\
+          ResultPath\": \"$.final_result\",\n      \"End\": true\n    }\n  }\n}\n"
+  FastApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: bitget-fastapi
+      CodeUri: FastApiFunction
+      Handler: main.app
+      Role:
+        Fn::GetAtt:
+        - LambdaExecutionRole
+        - Arn
+      Environment:
+        Variables:
+          STEP_FUNCTION_ARN:
+            Ref: OrderExtractionStateMachine
+      Events:
+        ApiGateway:
+          Type: Api
+          Properties:
+            Path: /{proxy+}
+            Method: ANY
+    Metadata:
+      SamResourceId: FastApiFunction
+Outputs:
+  ApiGatewayUrl:
+    Description: API Gateway endpoint URL
+    Value:
+      Fn::Sub: https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/
+  StepFunctionArn:
+    Description: Step Function State Machine ARN
+    Value:
+      Ref: OrderExtractionStateMachine
+  CoordinatorFunctionArn:
+    Description: Coordinator Lambda Function ARN
+    Value:
+      Fn::GetAtt:
+      - CoordinatorFunction
+      - Arn
+  SymbolProcessorFunctionArn:
+    Description: Symbol Processor Lambda Function ARN
+    Value:
+      Fn::GetAtt:
+      - SymbolProcessorFunction
+      - Arn
+  ResultCollectorFunctionArn:
+    Description: Result Collector Lambda Function ARN
+    Value:
+      Fn::GetAtt:
+      - ResultCollectorFunction
+      - Arn
