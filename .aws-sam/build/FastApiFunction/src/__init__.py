@@ -1,1 +1,0 @@
-# Bitget Trading Orders Extraction Package

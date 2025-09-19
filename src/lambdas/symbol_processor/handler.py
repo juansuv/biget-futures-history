@@ -2,7 +2,7 @@ import json
 import time
 from typing import Dict, Any, List
 from pybitget import Client
-from src.config import BitgetConfig
+from config import BitgetConfig
 
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """

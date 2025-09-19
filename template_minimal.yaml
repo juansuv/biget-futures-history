@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: 'Bitget Trading Orders Extraction using AWS Lambda and Step Functions'
+Description: 'Bitget Trading Orders - Lambda Functions Only'
 
 Parameters:
   BitgetApiKey:
@@ -29,48 +29,25 @@ Globals:
         BITGET_PASSPHRASE: !Ref BitgetPassphrase
 
 Resources:
-  # IAM Role for Lambda functions (sin dependencia circular)
-  LambdaExecutionRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Policies:
-        - PolicyName: StepFunctionInvokePolicy
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - states:StartExecution
-                Resource: !Sub 'arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:bitget-order-extraction'
-
-  # Symbol Processor Lambda Function (primero)
+  # Symbol Processor Lambda Function
   SymbolProcessorFunction:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: bitget-symbol-processor
       CodeUri: src/lambdas/symbol_processor/
       Handler: handler.lambda_handler
-      Role: !GetAtt LambdaExecutionRole.Arn
+      MemorySize: 512
 
-  # Result Collector Lambda Function (segundo)
+  # Result Collector Lambda Function  
   ResultCollectorFunction:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: bitget-result-collector
       CodeUri: src/lambdas/result_collector/
       Handler: handler.lambda_handler
-      Role: !GetAtt LambdaExecutionRole.Arn
+      MemorySize: 256
 
-  # IAM Role for Step Functions (después de las Lambdas)
+  # Step Function Role
   StepFunctionRole:
     Type: AWS::IAM::Role
     Properties:
@@ -93,7 +70,7 @@ Resources:
                   - !GetAtt SymbolProcessorFunction.Arn
                   - !GetAtt ResultCollectorFunction.Arn
 
-  # Step Function State Machine (después del role)
+  # Step Function State Machine
   OrderExtractionStateMachine:
     Type: AWS::StepFunctions::StateMachine
     Properties:
@@ -145,41 +122,22 @@ Resources:
           }
         }
 
-  # Coordinator Lambda Function (después del Step Function)
+  # Coordinator Lambda Function
   CoordinatorFunction:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: bitget-coordinator
       CodeUri: src/lambdas/coordinator/
       Handler: handler.lambda_handler
-      Role: !GetAtt LambdaExecutionRole.Arn
+      MemorySize: 512
       Environment:
         Variables:
           STEP_FUNCTION_ARN: !Ref OrderExtractionStateMachine
-
-  # FastAPI Application (al final)
-  FastApiFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      FunctionName: bitget-fastapi
-      CodeUri: ./
-      Handler: main.app
-      Role: !GetAtt LambdaExecutionRole.Arn
-      Environment:
-        Variables:
-          STEP_FUNCTION_ARN: !Ref OrderExtractionStateMachine
-      Events:
-        ApiGateway:
-          Type: Api
-          Properties:
-            Path: /{proxy+}
-            Method: ANY
+      Policies:
+        - StepFunctionsExecutionPolicy:
+            StateMachineName: !GetAtt OrderExtractionStateMachine.Name
 
 Outputs:
-  ApiGatewayUrl:
-    Description: 'API Gateway endpoint URL'
-    Value: !Sub 'https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/'
-  
   StepFunctionArn:
     Description: 'Step Function State Machine ARN'
     Value: !Ref OrderExtractionStateMachine
