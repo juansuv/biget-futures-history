@@ -57,8 +57,25 @@ STEP_FUNCTION_ARN = os.environ.get('STEP_FUNCTION_ARN')
 @app.get("/", response_class=HTMLResponse)
 async def root():
     """Landing page with API documentation"""
-    with open('src/api/index.html', 'r') as f:
-        html_content = f.read()
+    import os
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    html_path = os.path.join(current_dir, 'index.html')
+    
+    try:
+        with open(html_path, 'r') as f:
+            html_content = f.read()
+    except FileNotFoundError:
+        # Fallback HTML if file not found
+        html_content = """
+        <!DOCTYPE html>
+        <html>
+        <head><title>Bitget Trading Orders API</title></head>
+        <body>
+            <h1>🚀 Bitget Trading Orders API</h1>
+            <p>API endpoint is running. <a href="/docs">View documentation</a></p>
+        </body>
+        </html>
+        """
     
     docs_href = stage_path('docs')
     health_href = stage_path('health')
@@ -113,7 +130,7 @@ async def extract_orders(request: OrderExtractionRequest):
         symbols = request.symbols
         if not symbols:
             try:
-                coordinator_response = coordinator_lambda_handler.get_all_orders_secuencial(
+                coordinator_response = lambda_client.invoke(
                     FunctionName='bitget-coordinator',
                     Payload=json.dumps({"test_mode": request.test_mode})
                 )
@@ -121,7 +138,7 @@ async def extract_orders(request: OrderExtractionRequest):
                 coordinator_result = json.loads(coordinator_response['Payload'].read())
                 if coordinator_result.get('statusCode') == 200:
                     body = json.loads(coordinator_result['body'])
-                    symbols = body.get('symbols', [])[:10]  # Limitar a 10 para demo
+                    symbols = body.get('symbols', []) # Limitar a 10 para demo
                 else:
                     raise Exception("Coordinator failed")
                     
@@ -278,6 +295,9 @@ async def list_recent_executions():
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+
 
 # Handler para AWS Lambda
 handler = Mangum(app)

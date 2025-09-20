@@ -73,9 +73,14 @@ def combine_and_sort_orders(parallel_results: List[Dict[str, Any]]) -> Dict[str,
             if status_code == 200:
                 successful_symbols.append(symbol)
                 # Add symbol info to each order for tracking
-                for order in orders:
-                    order['processing_symbol'] = symbol
-                    all_orders.extend([order] if isinstance(order, dict) else [])
+                if orders and isinstance(orders, list):
+                    for order in orders:
+                        if isinstance(order, dict):
+                            order['processing_symbol'] = symbol
+                            all_orders.append(order)
+                # Symbol processed successfully but no orders found (this is OK)
+                elif orders_count == 0:
+                    print(f"Symbol {symbol} processed successfully but no orders found")
             else:
                 failed_symbols.append({
                     'symbol': symbol,

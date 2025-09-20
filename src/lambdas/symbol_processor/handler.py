@@ -39,7 +39,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         
         # Extract all orders for this symbol
         orders = get_all_orders_for_symbol(client, symbol)
-        #print(f"Extracted {len(orders)} orders for symbol {symbol}")
+        print(f"Extracted {len(orders)} orders for symbol {symbol}, ORDERS: {orders}")
         return {
             'statusCode': 200,
             'symbol': symbol,
