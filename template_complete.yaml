@@ -273,7 +273,6 @@ Resources:
                   "collect_from_s3": true
                 }
               },
-              "ResultPath": "$.final_result",
               "End": true
             }
           }
