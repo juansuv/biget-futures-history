@@ -78,7 +78,7 @@ def search_symbols_in_window(client: Client, start_time: int, end_time: int, win
     try:
         last_end_id = ""
         page = 1
-        max_pages = 30  # Límite optimizado de páginas por ventana
+        max_pages = 40  # Límite optimizado de páginas por ventana
         
         print(f"Searching symbols in window {window_id} from {start_time} to {end_time}")
         

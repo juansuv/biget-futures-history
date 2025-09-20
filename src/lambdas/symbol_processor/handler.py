@@ -66,7 +66,7 @@ def get_all_orders_for_symbol(client: Client, symbol: str) -> List[Dict[str, Any
     """
     all_orders = []
     page_size = 100
-    max_pages = 60  # Prevent infinite loops
+    max_pages = 80  # Prevent infinite loops
     
     try:
         # Calculate time range (last 90 days for comprehensive history)
