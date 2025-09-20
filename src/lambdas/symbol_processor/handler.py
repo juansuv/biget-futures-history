@@ -48,26 +48,39 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         orders = get_all_orders_for_symbol(client, symbol)
         print(f"Extracted {len(orders)} orders for symbol {symbol}")
         
-        # Store results in S3 if there are many orders (> 10)
-        if len(orders) > 10:
+        # Store results in S3 if there are any orders (> 0)
+        if len(orders) > 0:
             s3_key = store_orders_in_s3(symbol, orders)
-            return {
-                'statusCode': 200,
-                'symbol': symbol,
-                'orders_count': len(orders),
-                'orders': [],  # Empty to avoid data limit
-                's3_key': s3_key,
-                's3_bucket': os.environ.get('RESULTS_BUCKET'),
-                'stored_in_s3': True,
-                'processed_at': int(time.time() * 1000)
-            }
+            if s3_key:
+                return {
+                    'statusCode': 200,
+                    'symbol': symbol,
+                    'orders_count': len(orders),
+                    'orders': [],  # Empty to avoid data limit
+                    's3_key': s3_key,
+                    's3_bucket': os.environ.get('RESULTS_BUCKET'),
+                    'stored_in_s3': True,
+                    'processed_at': int(time.time() * 1000)
+                }
+            else:
+                # S3 failed, return small subset to avoid data limit
+                limited_orders = orders[:3] if len(orders) > 3 else orders
+                return {
+                    'statusCode': 200,
+                    'symbol': symbol,
+                    'orders_count': len(orders),
+                    'orders': limited_orders,
+                    'stored_in_s3': False,
+                    's3_fallback_failed': True,
+                    'processed_at': int(time.time() * 1000)
+                }
         else:
-            # For small results, return directly
+            # No orders found
             return {
                 'statusCode': 200,
                 'symbol': symbol,
-                'orders_count': len(orders),
-                'orders': orders,
+                'orders_count': 0,
+                'orders': [],
                 'stored_in_s3': False,
                 'processed_at': int(time.time() * 1000)
             }
@@ -210,5 +223,6 @@ def store_orders_in_s3(symbol: str, orders: List[Dict[str, Any]]) -> str:
         
     except Exception as e:
         print(f"Error storing orders in S3 for {symbol}: {e}")
+        print(f"Bucket: {bucket_name}, Key: {s3_key}")
         # Return None to indicate fallback needed
         return None

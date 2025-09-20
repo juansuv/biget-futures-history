@@ -73,6 +73,47 @@ Resources:
             Action: 's3:GetObject'
             Resource: !Sub '${ResultsBucket.Arn}/symbol_results/*'
 
+  # Time Range Mapper Lambda Function
+  TimeRangeMapperFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: bitget-time-range-mapper
+      CodeUri: src/lambdas/time_range_mapper/
+      Handler: handler.lambda_handler
+      MemorySize: 256
+      Timeout: 60
+
+  # Symbol Searcher Lambda Function
+  SymbolSearcherFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: bitget-symbol-searcher
+      CodeUri: src/lambdas/symbol_searcher/
+      Handler: handler.lambda_handler
+      MemorySize: 1024
+      Timeout: 900
+
+  # Symbol Unifier Lambda Function
+  SymbolUnifierFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: bitget-symbol-unifier
+      CodeUri: src/lambdas/symbol_unifier/
+      Handler: handler.lambda_handler
+      MemorySize: 512
+      Timeout: 300
+      Environment:
+        Variables:
+          RESULTS_BUCKET: !Ref ResultsBucket
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:PutObject
+                - s3:PutObjectAcl
+              Resource: !Sub '${ResultsBucket.Arn}/*'
+
   # Symbol Processor Lambda Function
   SymbolProcessorFunction:
     Type: AWS::Serverless::Function
@@ -139,6 +180,9 @@ Resources:
                 Action:
                   - lambda:InvokeFunction
                 Resource:
+                  - !GetAtt TimeRangeMapperFunction.Arn
+                  - !GetAtt SymbolSearcherFunction.Arn
+                  - !GetAtt SymbolUnifierFunction.Arn
                   - !GetAtt SymbolProcessorFunction.Arn
                   - !GetAtt ResultCollectorFunction.Arn
 
@@ -150,12 +194,55 @@ Resources:
       RoleArn: !GetAtt StepFunctionRole.Arn
       DefinitionString: !Sub |
         {
-          "Comment": "Parallel processing of Bitget trading symbols to extract orders",
-          "StartAt": "ProcessSymbolsInParallel",
+          "Comment": "Complete Bitget order extraction pipeline with parallel symbol discovery",
+          "StartAt": "MapTimeRanges",
           "States": {
+            "MapTimeRanges": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${TimeRangeMapperFunction.Arn}",
+                "Payload.$": "$"
+              },
+              "ResultPath": "$.time_ranges",
+              "Next": "DiscoverSymbolsInParallel"
+            },
+            "DiscoverSymbolsInParallel": {
+              "Type": "Map",
+              "ItemsPath": "$.time_ranges.Payload.time_windows",
+              "MaxConcurrency": 8,
+              "Iterator": {
+                "StartAt": "SearchSymbolsInWindow",
+                "States": {
+                  "SearchSymbolsInWindow": {
+                    "Type": "Task",
+                    "Resource": "arn:aws:states:::lambda:invoke",
+                    "Parameters": {
+                      "FunctionName": "${SymbolSearcherFunction.Arn}",
+                      "Payload.$": "$"
+                    },
+                    "End": true
+                  }
+                }
+              },
+              "ResultPath": "$.window_results",
+              "Next": "UnifySymbols"
+            },
+            "UnifySymbols": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${SymbolUnifierFunction.Arn}",
+                "Payload": {
+                  "window_results.$": "$.window_results"
+                }
+              },
+              "ResultPath": "$.unified_symbols",
+              "Next": "ProcessSymbolsInParallel"
+            },
             "ProcessSymbolsInParallel": {
               "Type": "Map",
-              "ItemsPath": "$.symbols",
+              "ItemsPath": "$.unified_symbols.Payload.symbols",
               "MaxConcurrency": 5,
               "Iterator": {
                 "StartAt": "ProcessSingleSymbol",
@@ -184,7 +271,8 @@ Resources:
                 "Payload": {
                   "parallel_results.$": "$.parallel_results",
                   "original_input.$": "$",
-                  "execution_arn.$": "$$.Execution.Name"
+                  "execution_arn.$": "$$.Execution.Name",
+                  "symbol_discovery_stats.$": "$.unified_symbols.Payload"
                 }
               },
               "ResultPath": "$.final_result",
@@ -217,7 +305,7 @@ Resources:
       CodeUri: src/api/
       Handler: main.handler
       MemorySize: 512
-      Timeout: 30
+      Timeout: 300
       Environment:
         Variables:
           STEP_FUNCTION_ARN: !Ref OrderExtractionStateMachine

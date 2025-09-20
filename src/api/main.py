@@ -9,6 +9,7 @@ from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
 from pydantic import BaseModel
 from mangum import Mangum
+from src.lambdas.coordinator.handler import lambda_handler as coordinator_handler
 
 ROOT_PATH = os.environ.get("FASTAPI_ROOT_PATH", "")
 STAGE_PREFIX = ROOT_PATH.rstrip("/") if ROOT_PATH else ""
@@ -210,30 +211,41 @@ async def extract_orders(request_data: OrderExtractionRequest, request: Request)
     3. Devuelve el ARN de ejecución para seguimiento
     """
     try:
-        if not STEP_FUNCTION_ARN:
-            raise HTTPException(
-                status_code=500, detail="Step Function ARN not configured"
-            )
+        # if not STEP_FUNCTION_ARN:
+        #     raise HTTPException(
+        #         status_code=500, detail="Step Function ARN not configured"
+        #     )
 
-        # Si no se proporcionan símbolos, obtenerlos del coordinador
+        # Si no se proporcionan símbolos, usar test_mode por defecto para evitar timeouts
         symbols = request_data.symbols
         if not symbols:
-            try:
-                coordinator_response = lambda_client.invoke(
-                    FunctionName="bitget-coordinator",
-                    Payload=json.dumps({"test_mode": request_data.test_mode}),
-                )
+            if request_data.test_mode:
+                # Usar símbolos de test rápidos
+                result = coordinator_handler({}, None)
 
-                coordinator_result = json.loads(coordinator_response["Payload"].read())
-                if coordinator_result.get("statusCode") == 200:
-                    body = json.loads(coordinator_result["body"])
-                    symbols = body.get("symbols", [])  # Limitar a 10 para demo
-                else:
-                    raise Exception("Coordinator failed")
+                symbols = ["BTCUSDT", "ETHUSDT", "ADAUSDT", "DOGEUSDT", "SOLUSDT"]
+                print(f"Using test mode symbols: {symbols}")
+            else:
+                # Obtener del coordinador (puede tardar varios minutos)
+                print("Calling coordinator to get all symbols (this may take several minutes)...")
+                try:
+                    coordinator_response = lambda_client.invoke(
+                        FunctionName="bitget-coordinator",
+                        Payload=json.dumps({"test_mode": False}),
+                    )
 
-            except Exception as e:
-                # Usar símbolos por defecto si falla el coordinador
-                symbols = ["BTCUSDT", "ETHUSDT", "ADAUSDT"]
+                    coordinator_result = json.loads(coordinator_response["Payload"].read())
+                    if coordinator_result.get("statusCode") == 200:
+                        body = json.loads(coordinator_result["body"])
+                        symbols = body.get("symbols", [])
+                        print(f"Coordinator returned {len(symbols)} symbols")
+                    else:
+                        raise Exception("Coordinator failed")
+
+                except Exception as e:
+                    print(f"Coordinator failed: {e}, using fallback symbols")
+                    # Usar símbolos por defecto si falla el coordinador
+                    symbols = ["BTCUSDT", "ETHUSDT", "ADAUSDT"]
 
         # Ejecutar Step Function
         execution_name = f"bitget-extraction-{int(time.time())}"
@@ -595,3 +607,16 @@ async def generate_s3_download_url(bucket_name: str, s3_key: str, expires_in: in
 
 # Handler para AWS Lambda
 handler = Mangum(app)
+
+if __name__ == "__main__":
+    # Usa FASTAPI_HOST/FASTAPI_PORT si quieres sobreescribir
+    host = os.getenv("FASTAPI_HOST", "127.0.0.1")
+    port = int(os.getenv("FASTAPI_PORT", "8000"))
+
+    import uvicorn
+    uvicorn.run(
+        "src.api.main:app",  # apunta al objeto app
+        host=host,
+        port=port,
+        reload=True
+    )

@@ -37,6 +37,9 @@ watch_logs() {
     echo ""
     echo "# Watch all Lambda logs:"
     echo "aws logs tail '/aws/lambda/bitget-coordinator' --follow"
+    echo "aws logs tail '/aws/lambda/bitget-time-range-mapper' --follow"
+    echo "aws logs tail '/aws/lambda/bitget-symbol-searcher' --follow"
+    echo "aws logs tail '/aws/lambda/bitget-symbol-unifier' --follow"
     echo "aws logs tail '/aws/lambda/bitget-symbol-processor' --follow"
     echo "aws logs tail '/aws/lambda/bitget-result-collector' --follow"
     echo "aws logs tail '/aws/lambda/bitget-fastapi' --follow"
@@ -49,14 +52,17 @@ watch_logs() {
     while true; do
         echo "Select a log to watch:"
         echo "1) Coordinator Lambda"
-        echo "2) Symbol Processor Lambda"
-        echo "3) Result Collector Lambda"
-        echo "4) FastAPI Lambda"
-        echo "5) API Gateway"
-        echo "6) All Lambda logs (parallel)"
+        echo "2) Time Range Mapper Lambda"
+        echo "3) Symbol Searcher Lambda"
+        echo "4) Symbol Unifier Lambda"
+        echo "5) Symbol Processor Lambda"
+        echo "6) Result Collector Lambda"
+        echo "7) FastAPI Lambda"
+        echo "8) API Gateway"
+        echo "9) All Lambda logs (parallel)"
         echo "0) Exit"
         echo ""
-        read -p "Choose option (0-6): " choice
+        read -p "Choose option (0-9): " choice
         
         case $choice in
             1)
@@ -64,18 +70,30 @@ watch_logs() {
                 aws logs tail '/aws/lambda/bitget-coordinator' --follow
                 ;;
             2)
+                echo "📊 Watching Time Range Mapper logs (Ctrl+C to stop)..."
+                aws logs tail '/aws/lambda/bitget-time-range-mapper' --follow
+                ;;
+            3)
+                echo "📊 Watching Symbol Searcher logs (Ctrl+C to stop)..."
+                aws logs tail '/aws/lambda/bitget-symbol-searcher' --follow
+                ;;
+            4)
+                echo "📊 Watching Symbol Unifier logs (Ctrl+C to stop)..."
+                aws logs tail '/aws/lambda/bitget-symbol-unifier' --follow
+                ;;
+            5)
                 echo "📊 Watching Symbol Processor logs (Ctrl+C to stop)..."
                 aws logs tail '/aws/lambda/bitget-symbol-processor' --follow
                 ;;
-            3)
+            6)
                 echo "📊 Watching Result Collector logs (Ctrl+C to stop)..."
                 aws logs tail '/aws/lambda/bitget-result-collector' --follow
                 ;;
-            4)
+            7)
                 echo "📊 Watching FastAPI logs (Ctrl+C to stop)..."
                 aws logs tail '/aws/lambda/bitget-fastapi' --follow
                 ;;
-            5)
+            8)
                 # Get API Gateway log group name
                 API_LOG_GROUP=$(aws logs describe-log-groups --log-group-name-prefix '/aws/apigateway/' --query 'logGroups[0].logGroupName' --output text)
                 if [ "$API_LOG_GROUP" != "None" ] && [ -n "$API_LOG_GROUP" ]; then
@@ -85,12 +103,15 @@ watch_logs() {
                     echo "❌ No API Gateway logs found"
                 fi
                 ;;
-            6)
+            9)
                 echo "📊 Watching all Lambda logs in parallel (Ctrl+C to stop all)..."
                 echo "Opening separate terminals for each log stream..."
                 echo ""
                 echo "Run these commands in separate terminals:"
                 echo "aws logs tail '/aws/lambda/bitget-coordinator' --follow"
+                echo "aws logs tail '/aws/lambda/bitget-time-range-mapper' --follow"
+                echo "aws logs tail '/aws/lambda/bitget-symbol-searcher' --follow"
+                echo "aws logs tail '/aws/lambda/bitget-symbol-unifier' --follow"
                 echo "aws logs tail '/aws/lambda/bitget-symbol-processor' --follow"
                 echo "aws logs tail '/aws/lambda/bitget-result-collector' --follow"
                 echo "aws logs tail '/aws/lambda/bitget-fastapi' --follow"
@@ -100,7 +121,7 @@ watch_logs() {
                 break
                 ;;
             *)
-                echo "Invalid option. Please choose 0-6."
+                echo "Invalid option. Please choose 0-9."
                 ;;
         esac
         echo ""
@@ -196,7 +217,7 @@ aws apigateway put-account \
 # Verify requirements.txt files exist for all functions
 echo ""
 echo "📋 Verifying requirements files..."
-FUNCTIONS=("coordinator" "symbol_processor" "result_collector")
+FUNCTIONS=("coordinator" "symbol_processor" "result_collector" "time_range_mapper" "symbol_searcher" "symbol_unifier")
 API_REQUIREMENTS="src/api/requirements.txt"
 
 for func in "${FUNCTIONS[@]}"; do

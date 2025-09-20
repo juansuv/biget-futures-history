@@ -128,8 +128,12 @@ def combine_and_sort_orders(parallel_results: List[Dict[str, Any]]) -> Dict[str,
                     else:
                         orders = []
                         print(f"Missing S3 reference for {symbol}")
+                elif payload.get('s3_fallback_failed', False):
+                    # S3 failed but we have limited orders
+                    orders = payload.get('orders', [])
+                    print(f"Using fallback orders for {symbol}: {len(orders)} (S3 failed)")
                 else:
-                    # Use orders directly from payload
+                    # Use orders directly from payload (no orders case)
                     orders = payload.get('orders', [])
                 
                 # Add symbol info to each order for tracking
