@@ -2,6 +2,8 @@ import json
 import time
 import boto3
 import os
+import orjson
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, Any, List
 
 def lambda_handler(event: Dict[str, Any], _) -> Dict[str, Any]:
@@ -34,7 +36,6 @@ def lambda_handler(event: Dict[str, Any], _) -> Dict[str, Any]:
         }
 
 
-
 def store_result_in_s3(all_orders: List[Dict[str, Any]], execution_arn: str = None) -> str:
     """
     Store sorted orders in S3 and return the S3 key with presigned URL
@@ -48,16 +49,19 @@ def store_result_in_s3(all_orders: List[Dict[str, Any]], execution_arn: str = No
         execution_id = execution_arn.split(':')[-1] if execution_arn else 'unknown'
         s3_key = f"results/{timestamp}_{execution_id}.json"
         
-        # Prepare CLEAN JSON with only sorted orders
+        # Prepare CLEAN JSON with only sorted orders (ultra-fast binary encoding)
         clean_result = {
             'orders': all_orders
         }
+        
+        # Use orjson for ultra-fast JSON encoding
+        json_body = orjson.dumps(clean_result, option=orjson.OPT_INDENT_2)
         
         # Upload to S3 with public read permissions
         s3_client.put_object(
             Bucket=bucket_name,
             Key=s3_key,
-            Body=json.dumps(clean_result, indent=2, ensure_ascii=False),
+            Body=json_body,
             ContentType='application/json',
             ServerSideEncryption='AES256',
             ACL='bucket-owner-full-control'
@@ -86,7 +90,7 @@ def store_result_in_s3(all_orders: List[Dict[str, Any]], execution_arn: str = No
 
 def collect_results_from_s3() -> Dict[str, Any]:
     """
-    Collect all orders from S3 symbol_results folder and sort globally by cTime
+    Collect all orders from S3 symbol_results folder with parallel processing
     """
     try:
         s3_client = boto3.client('s3')
@@ -104,31 +108,33 @@ def collect_results_from_s3() -> Dict[str, Any]:
         )
         
         all_orders = []
-        processed_count = 0
         
         if 'Contents' in response:
-            print(f"Found {len(response['Contents'])} files in symbol_results folder")
+            json_files = [obj['Key'] for obj in response['Contents'] if obj['Key'].endswith('.json')]
+            print(f"Found {len(json_files)} JSON files in symbol_results folder")
             
-            # Process each symbol file
-            for obj in response['Contents']:
-                s3_key = obj['Key']
-                if not s3_key.endswith('.json'):
-                    continue
+            if json_files:
+                # Process files in parallel with optimized thread count
+                max_workers = min(32, len(json_files))  # AWS Lambda max concurrent connections
+                print(f"Processing files with {max_workers} parallel workers")
+                
+                with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    # Submit all download tasks
+                    future_to_key = {
+                        executor.submit(download_and_parse_file, bucket_name, s3_key): s3_key 
+                        for s3_key in json_files
+                    }
                     
-                try:
-                    # Load and parse symbol orders
-                    file_response = s3_client.get_object(Bucket=bucket_name, Key=s3_key)
-                    content = file_response['Body'].read().decode('utf-8')
-                    data = json.loads(content)
-                    
-                    orders = data.get('orders', [])
-                    if orders:
-                        all_orders.extend(orders)
-                        processed_count += 1
-                        print(f"Loaded {len(orders)} orders from {s3_key}")
-                        
-                except Exception as e:
-                    print(f"Error processing {s3_key}: {e}")
+                    # Collect results as they complete
+                    for future in as_completed(future_to_key):
+                        s3_key = future_to_key[future]
+                        try:
+                            orders = future.result()
+                            if orders:
+                                all_orders.extend(orders)
+                                print(f"✅ Loaded {len(orders)} orders from {s3_key}")
+                        except Exception as e:
+                            print(f"❌ Error processing {s3_key}: {e}")
         else:
             print("No files found in symbol_results folder")
         
@@ -138,24 +144,52 @@ def collect_results_from_s3() -> Dict[str, Any]:
         print(f"After deduplication: {len(all_orders)} orders")
         
         # Sort all orders globally by cTime (newest first)
-        def safe_ctime_parse(order):
-            try:
-                ctime = order.get('cTime', '0')
-                return int(str(ctime))
-            except (ValueError, TypeError):
-                return 0
-        
+        print("Sorting orders globally by cTime...")
         all_orders.sort(key=safe_ctime_parse, reverse=True)
-        print(f"Orders sorted globally by cTime")
+        print(f"✅ Orders sorted globally by cTime")
         
         return {
-            'message': 'Orders successfully collected from S3',
+            'message': 'Orders successfully collected from S3 with parallel processing',
             'orders': all_orders
         }
         
     except Exception as e:
         print(f"Error collecting results from S3: {e}")
         raise
+
+
+def download_and_parse_file(bucket_name: str, s3_key: str) -> List[Dict[str, Any]]:
+    """
+    Download and parse a single S3 file (thread-safe)
+    """
+    try:
+        s3_client = boto3.client('s3')
+        file_response = s3_client.get_object(Bucket=bucket_name, Key=s3_key)
+        content = file_response['Body'].read()
+        
+        # Use orjson for ultra-fast parsing
+        try:
+            data = orjson.loads(content)
+        except:
+            # Fallback to standard json
+            data = json.loads(content.decode('utf-8'))
+        
+        return data.get('orders', [])
+    except Exception as e:
+        print(f"Error downloading {s3_key}: {e}")
+        return []
+
+
+def safe_ctime_parse(order: Dict[str, Any]) -> int:
+    """
+    Safely parse cTime for sorting (optimized)
+    """
+    try:
+        ctime = order.get('cTime', '0')
+        return int(str(ctime))
+    except (ValueError, TypeError):
+        return 0
+
 
 def remove_global_duplicates(all_orders: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """

@@ -1,7 +1,7 @@
-import json
 import time
 import os
 import boto3
+import orjson
 from typing import Dict, Any, List
 from pybitget import Client
 
@@ -124,15 +124,21 @@ def get_all_orders_for_symbol(client: Client, symbol: str) -> List[Dict[str, Any
         return []
 
 def store_orders_in_s3(symbol: str, orders: List[Dict[str, Any]]):
+    """
+    Store orders in S3 with ultra-fast binary JSON encoding
+    """
     try:
         s3_client = boto3.client('s3')
         bucket_name = os.environ.get('RESULTS_BUCKET')
         s3_key = f"symbol_results/{symbol}_{int(time.time())}.json"
         
+        # Use orjson for ultra-fast binary JSON encoding (up to 5x faster)
+        json_body = orjson.dumps({'orders': orders})
+        
         s3_client.put_object(
             Bucket=bucket_name,
             Key=s3_key,
-            Body=json.dumps({'orders': orders}, separators=(',', ':')),
+            Body=json_body,
             ContentType='application/json'
         )
     except Exception:
