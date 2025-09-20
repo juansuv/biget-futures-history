@@ -244,7 +244,7 @@ Resources:
             "ProcessSymbolsInParallel": {
               "Type": "Map",
               "ItemsPath": "$.unified_symbols.Payload.symbols",
-              "MaxConcurrency": 10,
+              "MaxConcurrency": 15,
               "Iterator": {
                 "StartAt": "ProcessSingleSymbol",
                 "States": {

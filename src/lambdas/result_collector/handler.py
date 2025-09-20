@@ -160,6 +160,11 @@ def combine_and_sort_orders(parallel_results: List[Dict[str, Any]]) -> Dict[str,
                 'error': f'Error processing result: {str(e)}'
             })
     
+    # Remove duplicates across all symbols before sorting
+    print(f"Before global deduplication: {len(all_orders)} orders")
+    all_orders = remove_global_duplicates(all_orders)
+    print(f"After global deduplication: {len(all_orders)} orders")
+    
     # Sort all orders chronologically (newest first)
     all_orders.sort(key=lambda x: int(x.get('createTime', 0)), reverse=True)
     
@@ -359,6 +364,11 @@ def collect_results_from_s3() -> Dict[str, Any]:
         else:
             print("No files found in symbol_results folder")
         
+        # Remove duplicates across all symbols before sorting
+        print(f"Before global deduplication: {len(all_orders)} orders")
+        all_orders = remove_global_duplicates(all_orders)
+        print(f"After global deduplication: {len(all_orders)} orders")
+        
         # Sort all orders chronologically (newest first)
         all_orders.sort(key=lambda x: int(x.get('createTime', 0)), reverse=True)
         
@@ -383,3 +393,32 @@ def collect_results_from_s3() -> Dict[str, Any]:
     except Exception as e:
         print(f"Error collecting results from S3: {e}")
         raise
+
+def remove_global_duplicates(all_orders: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Remove duplicate orders across all symbols based on orderId
+    """
+    if not all_orders:
+        return []
+    
+    seen_order_ids = set()
+    unique_orders = []
+    duplicates_count = 0
+    
+    for order in all_orders:
+        order_id = order.get('orderId')
+        if not order_id:
+            # Si no tiene orderId, lo incluimos (caso raro)
+            unique_orders.append(order)
+            continue
+            
+        if order_id not in seen_order_ids:
+            seen_order_ids.add(order_id)
+            unique_orders.append(order)
+        else:
+            duplicates_count += 1
+    
+    if duplicates_count > 0:
+        print(f"Removed {duplicates_count} duplicate orders across all symbols")
+    
+    return unique_orders
