@@ -50,49 +50,44 @@ watch_logs() {
     # Interactive log watching
     while true; do
         echo "Select a log to watch:"
-        echo "1) Coordinator Lambda"
-        echo "2) Time Range Mapper Lambda"
-        echo "3) Symbol Searcher Lambda"
-        echo "4) Symbol Unifier Lambda"
-        echo "5) Symbol Processor Lambda"
-        echo "6) Result Collector Lambda"
-        echo "7) FastAPI Lambda"
-        echo "8) API Gateway"
-        echo "9) All Lambda logs (parallel)"
+        echo "1) Time Range Mapper Lambda"
+        echo "2) Symbol Searcher Lambda"
+        echo "3) Symbol Unifier Lambda"
+        echo "4) Symbol Processor Lambda"
+        echo "5) Result Collector Lambda"
+        echo "6) FastAPI Lambda"
+        echo "7) API Gateway"
+        echo "8) All Lambda logs (parallel)"
         echo "0) Exit"
         echo ""
-        read -p "Choose option (0-9): " choice
+        read -p "Choose option (0-8): " choice
         
         case $choice in
             1)
-                echo "📊 Watching Coordinator logs (Ctrl+C to stop)..."
-                aws logs tail '/aws/lambda/bitget-coordinator' --follow
-                ;;
-            2)
                 echo "📊 Watching Time Range Mapper logs (Ctrl+C to stop)..."
                 aws logs tail '/aws/lambda/bitget-time-range-mapper' --follow
                 ;;
-            3)
+            2)
                 echo "📊 Watching Symbol Searcher logs (Ctrl+C to stop)..."
                 aws logs tail '/aws/lambda/bitget-symbol-searcher' --follow
                 ;;
-            4)
+            3)
                 echo "📊 Watching Symbol Unifier logs (Ctrl+C to stop)..."
                 aws logs tail '/aws/lambda/bitget-symbol-unifier' --follow
                 ;;
-            5)
+            4)
                 echo "📊 Watching Symbol Processor logs (Ctrl+C to stop)..."
                 aws logs tail '/aws/lambda/bitget-symbol-processor' --follow
                 ;;
-            6)
+            5)
                 echo "📊 Watching Result Collector logs (Ctrl+C to stop)..."
                 aws logs tail '/aws/lambda/bitget-result-collector' --follow
                 ;;
-            7)
+            6)
                 echo "📊 Watching FastAPI logs (Ctrl+C to stop)..."
                 aws logs tail '/aws/lambda/bitget-fastapi' --follow
                 ;;
-            8)
+            7)
                 # Get API Gateway log group name
                 API_LOG_GROUP=$(aws logs describe-log-groups --log-group-name-prefix '/aws/apigateway/' --query 'logGroups[0].logGroupName' --output text)
                 if [ "$API_LOG_GROUP" != "None" ] && [ -n "$API_LOG_GROUP" ]; then
@@ -102,12 +97,11 @@ watch_logs() {
                     echo "❌ No API Gateway logs found"
                 fi
                 ;;
-            9)
+            8)
                 echo "📊 Watching all Lambda logs in parallel (Ctrl+C to stop all)..."
                 echo "Opening separate terminals for each log stream..."
                 echo ""
                 echo "Run these commands in separate terminals:"
-                echo "aws logs tail '/aws/lambda/bitget-coordinator' --follow"
                 echo "aws logs tail '/aws/lambda/bitget-time-range-mapper' --follow"
                 echo "aws logs tail '/aws/lambda/bitget-symbol-searcher' --follow"
                 echo "aws logs tail '/aws/lambda/bitget-symbol-unifier' --follow"
@@ -120,7 +114,7 @@ watch_logs() {
                 break
                 ;;
             *)
-                echo "Invalid option. Please choose 0-9."
+                echo "Invalid option. Please choose 0-8."
                 ;;
         esac
         echo ""
@@ -269,13 +263,6 @@ else
     ls -la .aws-sam/build/FastApiFunction/ | head -10
 fi
 
-# Check pybitget in coordinator
-if [ -d ".aws-sam/build/CoordinatorFunction/pybitget" ]; then
-    echo "✅ pybitget installed in coordinator function"
-else
-    echo "❌ pybitget NOT found in coordinator function"
-    ls -la .aws-sam/build/CoordinatorFunction/ | head -10
-fi
 
 # Check pybitget in symbol processor
 if [ -d ".aws-sam/build/SymbolProcessorFunction/pybitget" ]; then
@@ -318,34 +305,25 @@ if [ $? -eq 0 ]; then
     echo ""
     echo "🌐 API URL: $API_URL"
     echo "📖 Documentation: ${API_URL}docs"
-    echo "❤️  Health Check: ${API_URL}health"
     echo ""
     echo "📋 Available endpoints:"
-    echo "• 🏠 Home: ${API_URL}"
-    echo "• ❤️  Health: ${API_URL}health"
-    echo "• 📖 Docs: ${API_URL}docs"
-    echo "• 📊 Symbols: ${API_URL}get-symbols"
+    echo "• 📖 Documentation: ${API_URL}docs"
+    echo "• ⚡ Extract Orders: ${API_URL}extract-orders"
     echo ""
-    echo "🧪 Quick test commands:"
-    echo "# Health check"
-    echo "curl ${API_URL}health"
-    echo ""
-    echo "# Get symbols"
-    echo "curl ${API_URL}get-symbols"
-    echo ""
-    echo "# Extract single symbol"
-    echo "curl -X POST ${API_URL}extract-single-symbol \\"
+    echo "🧪 Quick test command:"
+    echo "# Extract all orders (ultra-fast)"
+    echo "curl -X POST ${API_URL}extract-orders \\"
     echo "  -H 'Content-Type: application/json' \\"
-    echo "  -d '{\"symbol\":\"BTCUSDT\"}'"
+    echo "  -d '{\"test_mode\": false}'"
     echo ""
     
     # Wait for services to initialize
     echo "⏳ Waiting for services to initialize..."
     sleep 15
     
-    # Quick health test
-    echo "🧪 Testing API health..."
-    curl -s "${API_URL}health" | python3 -m json.tool 2>/dev/null || echo "API still initializing..."
+    # Quick API test
+    echo "🧪 Testing API documentation..."
+    curl -s "${API_URL}docs" > /dev/null && echo "✅ API docs accessible" || echo "API still initializing..."
     
     echo ""
     echo "📊 CloudWatch Log Groups:"
