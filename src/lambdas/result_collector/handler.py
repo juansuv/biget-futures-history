@@ -29,19 +29,46 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         combined_result = combine_and_sort_orders(parallel_results)
         
         # Store large result in S3 and return minimal summary
-        s3_key = store_result_in_s3(combined_result, execution_arn=event.get('execution_arn'))
+        s3_result = store_result_in_s3(combined_result, execution_arn=event.get('execution_arn'))
         
-        # Return minimal summary to avoid Step Function data limits
-        summary = {
-            'message': 'Orders processed and stored in S3',
-            'processing_timestamp': combined_result['processing_timestamp'],
-            'total_orders': combined_result['total_orders'],
-            'symbols_processed': combined_result['symbols_processed'],
-            'symbols_failed': combined_result['symbols_failed'],
-            's3_key': s3_key,
-            's3_bucket': os.environ.get('RESULTS_BUCKET'),
-            'orders_truncated': True
-        }
+        # Check if S3 storage was successful
+        if s3_result:
+            # S3 storage successful - return minimal summary
+            if isinstance(s3_result, dict):
+                s3_key = s3_result['s3_key']
+                presigned_url = s3_result.get('presigned_url')
+            else:
+                s3_key = s3_result
+                presigned_url = None
+                
+            summary = {
+                'message': 'Orders processed and stored in S3',
+                'processing_timestamp': combined_result['processing_timestamp'],
+                'total_orders': combined_result['total_orders'],
+                'symbols_processed': combined_result['symbols_processed'],
+                'symbols_failed': combined_result['symbols_failed'],
+                's3_key': s3_key,
+                's3_bucket': os.environ.get('RESULTS_BUCKET'),
+                'orders_truncated': True
+            }
+            
+            if presigned_url:
+                summary['direct_download_url'] = presigned_url
+        else:
+            # S3 storage failed - return truncated result directly
+            print("S3 storage failed, returning truncated result")
+            # Limit orders to prevent Step Function data limit
+            truncated_orders = combined_result['orders'][:50] if len(combined_result['orders']) > 50 else combined_result['orders']
+            summary = {
+                'message': 'Orders processed (S3 storage failed, result truncated)',
+                'processing_timestamp': combined_result['processing_timestamp'],
+                'total_orders': combined_result['total_orders'],
+                'symbols_processed': combined_result['symbols_processed'],
+                'symbols_failed': combined_result['symbols_failed'],
+                'orders': truncated_orders,
+                'orders_truncated': len(combined_result['orders']) > 50,
+                's3_fallback_failed': True
+            }
         
         return {
             'statusCode': 200,
@@ -202,17 +229,30 @@ def store_result_in_s3(result: Dict[str, Any], execution_arn: str = None) -> str
         execution_id = execution_arn.split(':')[-1] if execution_arn else 'unknown'
         s3_key = f"results/{timestamp}_{execution_id}.json"
         
-        # Upload to S3
+        # Upload to S3 with public read permissions
         s3_client.put_object(
             Bucket=bucket_name,
             Key=s3_key,
             Body=json.dumps(result, indent=2, ensure_ascii=False),
             ContentType='application/json',
-            ServerSideEncryption='AES256'
+            ServerSideEncryption='AES256',
+            ACL='bucket-owner-full-control'
         )
         
         print(f"Stored result in S3: s3://{bucket_name}/{s3_key}")
-        return s3_key
+        
+        # Generate presigned URL for direct download
+        try:
+            presigned_url = s3_client.generate_presigned_url(
+                'get_object',
+                Params={'Bucket': bucket_name, 'Key': s3_key},
+                ExpiresIn=3600 * 24 * 7  # 7 days
+            )
+            print(f"Generated presigned URL: {presigned_url}")
+            return {'s3_key': s3_key, 'presigned_url': presigned_url}
+        except Exception as e:
+            print(f"Error generating presigned URL: {e}")
+            return s3_key
         
     except Exception as e:
         print(f"Error storing result in S3: {e}")

@@ -3,7 +3,7 @@ import os
 import boto3
 import time
 from typing import Dict, Any, Optional, List
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
@@ -19,6 +19,30 @@ def stage_path(path: str = "") -> str:
     if STAGE_PREFIX:
         return f"{STAGE_PREFIX}/{suffix}" if suffix else (STAGE_PREFIX or "/")
     return f"/{suffix}" if suffix else "/"
+
+def get_base_url(request: Request) -> str:
+    """Get the base URL for the current request"""
+    # Try to get from API Gateway headers first
+    host = request.headers.get("host")
+    if not host:
+        host = request.url.hostname
+        if request.url.port:
+            host = f"{host}:{request.url.port}"
+    
+    # Use https for API Gateway
+    scheme = "https" if "amazonaws.com" in str(host) else request.url.scheme
+    
+    base_url = f"{scheme}://{host}"
+    if STAGE_PREFIX:
+        base_url += STAGE_PREFIX
+    
+    return base_url
+
+def full_url(request: Request, path: str = "") -> str:
+    """Generate a full URL for the given path"""
+    base = get_base_url(request)
+    suffix = path.lstrip("/")
+    return f"{base}/{suffix}" if suffix else base
 
 
 # Initialize FastAPI
@@ -176,7 +200,7 @@ async def health_check():
 
 
 @app.post("/extract-orders", response_model=OrderExtractionResponse)
-async def extract_orders(request: OrderExtractionRequest):
+async def extract_orders(request_data: OrderExtractionRequest, request: Request):
     """
     Extraer órdenes usando Step Function (flujo completo)
 
@@ -192,12 +216,12 @@ async def extract_orders(request: OrderExtractionRequest):
             )
 
         # Si no se proporcionan símbolos, obtenerlos del coordinador
-        symbols = request.symbols
+        symbols = request_data.symbols
         if not symbols:
             try:
                 coordinator_response = lambda_client.invoke(
                     FunctionName="bitget-coordinator",
-                    Payload=json.dumps({"test_mode": request.test_mode}),
+                    Payload=json.dumps({"test_mode": request_data.test_mode}),
                 )
 
                 coordinator_result = json.loads(coordinator_response["Payload"].read())
@@ -224,10 +248,10 @@ async def extract_orders(request: OrderExtractionRequest):
             ),
         )
 
-        # Crear link de descarga
+        # Crear link de descarga con URLs completas
         execution_arn_encoded = response["executionArn"].replace(":", "_")
-        download_link = stage_path(f"download-result/{execution_arn_encoded}")
-        status_link = stage_path(f"execution-status/{execution_arn_encoded}")
+        download_link = full_url(request, f"download-result/{execution_arn_encoded}")
+        status_link = full_url(request, f"execution-status/{execution_arn_encoded}")
 
         return OrderExtractionResponse(
             status="success",
@@ -336,7 +360,8 @@ async def get_execution_status(execution_arn_path: str):
                             "symbols_processed": final_data.get("symbols_processed", 0),
                             "symbols_failed": final_data.get("symbols_failed", 0),
                             "s3_key": final_data.get("s3_key"),
-                            "orders_truncated": final_data.get("orders_truncated", False)
+                            "orders_truncated": final_data.get("orders_truncated", False),
+                            "direct_download_url": final_data.get("direct_download_url")
                         }
             except Exception as e:
                 print(f"Error parsing execution output: {e}")
@@ -454,38 +479,45 @@ async def _download_result_internal(execution_arn_encoded: str, debug: bool = Fa
                         "body_keys": list(body.keys()),
                         "orders_truncated": body.get("orders_truncated"),
                         "s3_key": body.get("s3_key"),
-                        "s3_bucket": body.get("s3_bucket")
+                        "s3_bucket": body.get("s3_bucket"),
+                        "direct_download_url": body.get("direct_download_url")
                     })
                 
                 # Check if result was stored in S3
-                if body.get("orders_truncated") and body.get("s3_key"):
+                if body.get("s3_key") and not body.get("s3_fallback_failed"):
                     s3_key = body["s3_key"]
                     bucket_name = body.get("s3_bucket", os.environ.get("RESULTS_BUCKET"))
                     
-                    print(f"Attempting to download from S3: s3://{bucket_name}/{s3_key}")
-                    
-                    # Download from S3
-                    s3_client = boto3.client("s3")
-                    try:
-                        s3_response = s3_client.get_object(Bucket=bucket_name, Key=s3_key)
-                        final_result = json.loads(s3_response["Body"].read().decode("utf-8"))
-                        print(f"Successfully downloaded result from S3: {len(final_result.get('orders', []))} orders")
-                    except Exception as s3_error:
-                        print(f"S3 error: {s3_error}")
-                        print(f"Bucket: {bucket_name}, Key: {s3_key}")
-                        print(f"Environment RESULTS_BUCKET: {os.environ.get('RESULTS_BUCKET')}")
+                    if bucket_name and s3_key:
+                        print(f"Attempting to download from S3: s3://{bucket_name}/{s3_key}")
                         
-                        if debug:
-                            return {
-                                "error": "S3 access failed",
-                                "s3_error": str(s3_error),
-                                "debug_info": debug_info,
-                                "bucket_name": bucket_name,
-                                "s3_key": s3_key
-                            }
-                        
-                        raise HTTPException(status_code=500, detail=f"S3 access error: {s3_error}")
+                        # Download from S3
+                        s3_client = boto3.client("s3")
+                        try:
+                            s3_response = s3_client.get_object(Bucket=bucket_name, Key=s3_key)
+                            final_result = json.loads(s3_response["Body"].read().decode("utf-8"))
+                            print(f"Successfully downloaded result from S3: {len(final_result.get('orders', []))} orders")
+                        except Exception as s3_error:
+                            print(f"S3 error: {s3_error}")
+                            print(f"Bucket: {bucket_name}, Key: {s3_key}")
+                            print(f"Environment RESULTS_BUCKET: {os.environ.get('RESULTS_BUCKET')}")
+                            
+                            if debug:
+                                return {
+                                    "error": "S3 access failed",
+                                    "s3_error": str(s3_error),
+                                    "debug_info": debug_info,
+                                    "bucket_name": bucket_name,
+                                    "s3_key": s3_key
+                                }
+                            
+                            raise HTTPException(status_code=500, detail=f"S3 access error: {s3_error}")
+                    else:
+                        print("Missing bucket_name or s3_key, using body directly")
+                        final_result = body
                 else:
+                    # Either no S3 key or S3 fallback failed, use body directly
+                    print("No S3 key or S3 fallback failed, using body directly")
                     final_result = body
             else:
                 final_result = payload
@@ -525,6 +557,40 @@ async def _download_result_internal(execution_arn_encoded: str, debug: bool = Fa
             raise HTTPException(status_code=404, detail="Result file not found in S3")
         else:
             raise HTTPException(status_code=500, detail=f"Error: {error_msg}")
+
+
+@app.get("/s3-download-url/{bucket_name}/{s3_key:path}")
+async def generate_s3_download_url(bucket_name: str, s3_key: str, expires_in: int = 3600):
+    """
+    Generate a presigned URL for direct S3 download
+    """
+    try:
+        s3_client = boto3.client("s3")
+        
+        # Generate presigned URL
+        presigned_url = s3_client.generate_presigned_url(
+            'get_object',
+            Params={'Bucket': bucket_name, 'Key': s3_key},
+            ExpiresIn=expires_in
+        )
+        
+        return {
+            "presigned_url": presigned_url,
+            "expires_in_seconds": expires_in,
+            "bucket": bucket_name,
+            "key": s3_key
+        }
+        
+    except Exception as e:
+        error_msg = str(e)
+        if "NoSuchBucket" in error_msg:
+            raise HTTPException(status_code=404, detail="S3 bucket not found")
+        elif "NoSuchKey" in error_msg:
+            raise HTTPException(status_code=404, detail="S3 object not found")
+        elif "AccessDenied" in error_msg:
+            raise HTTPException(status_code=403, detail="Access denied to S3")
+        else:
+            raise HTTPException(status_code=500, detail=f"Error generating presigned URL: {error_msg}")
 
 
 # Handler para AWS Lambda

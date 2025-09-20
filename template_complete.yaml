@@ -40,10 +40,10 @@ Resources:
     Properties:
       BucketName: !Sub 'bitget-results-${AWS::StackName}'
       PublicAccessBlockConfiguration:
-        BlockPublicAcls: true
-        BlockPublicPolicy: true
-        IgnorePublicAcls: true
-        RestrictPublicBuckets: true
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
       BucketEncryption:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
@@ -53,6 +53,25 @@ Resources:
           - Id: DeleteOldResults
             Status: Enabled
             ExpirationInDays: 30
+
+  # S3 Bucket Policy for public read access to results
+  ResultsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ResultsBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: PublicReadGetObject
+            Effect: Allow
+            Principal: '*'
+            Action: 's3:GetObject'
+            Resource: !Sub '${ResultsBucket.Arn}/results/*'
+          - Sid: PublicReadGetObjectSymbols
+            Effect: Allow
+            Principal: '*'
+            Action: 's3:GetObject'
+            Resource: !Sub '${ResultsBucket.Arn}/symbol_results/*'
 
   # Symbol Processor Lambda Function
   SymbolProcessorFunction:

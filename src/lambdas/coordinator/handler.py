@@ -91,7 +91,7 @@ def get_symbols_with_trades(client: Client) -> List[str]:
                     symbols.add(position['symbol'])
         
 
-        return list(symbols)[:10]
+        return list(symbols)
         
     except Exception as e:
         print(f"Error getting symbols with trades: {e}")
