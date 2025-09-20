@@ -13,7 +13,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     print("Symbol processor lambda invoked")
     
     # Pausa más larga para respetar rate limits
-    time.sleep(0.2)
+    #time.sleep(0.2)
     
     try:
         print(f"Processing event: {event}")
@@ -47,45 +47,18 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         orders = get_all_orders_for_symbol(client, symbol)
         print(f"Extracted {len(orders)} orders for symbol {symbol}")
         
-        # Store results in S3 if there are any orders (> 0)
+        # Store results in S3 if there are any orders
         if len(orders) > 0:
             s3_key = store_orders_in_s3(symbol, orders)
             if s3_key:
-                return {
-                    'statusCode': 200,
-                    'symbol': symbol,
-                    'orders_count': len(orders),
-                    's3_key': s3_key,
-                    'stored_in_s3': True
-                }
+                return {'statusCode': 200, 'symbol': symbol}
             else:
-                # S3 failed, return small subset to avoid data limit
-                limited_orders = orders[:3] if len(orders) > 3 else orders
-                print(f"S3 storage failed for {symbol}, returning limited orders")
-                return {
-                    'statusCode': 200,
-                    'symbol': symbol,
-                    'orders_count': len(orders),
-                    'orders': limited_orders[:1],  # Only 1 order max
-                    'stored_in_s3': False,
-                    's3_fallback_failed': True
-                }
+                return {'statusCode': 200, 'symbol': symbol, 'orders': orders[:1]}
         else:
-            # No orders found
-            return {
-                'statusCode': 200,
-                'symbol': symbol,
-                'orders_count': 0,
-                'stored_in_s3': False
-            }
+            return {'statusCode': 200, 'symbol': symbol}
         
-    except Exception as e:
-        return {
-            'statusCode': 500,
-            'symbol': event.get('symbol', 'unknown'),
-            'error': str(e)[:100],  # Truncate error message
-            'orders_count': 0
-        }
+    except Exception:
+        return {'statusCode': 500, 'symbol': event.get('symbol', 'unknown')}
 
 def get_all_orders_for_symbol(client: Client, symbol: str) -> List[Dict[str, Any]]:
     """
@@ -93,7 +66,7 @@ def get_all_orders_for_symbol(client: Client, symbol: str) -> List[Dict[str, Any
     """
     all_orders = []
     page_size = 100
-    max_pages = 50  # Prevent infinite loops
+    max_pages = 60  # Prevent infinite loops
     
     try:
         # Calculate time range (last 90 days for comprehensive history)
@@ -126,7 +99,7 @@ def get_all_orders_for_symbol(client: Client, symbol: str) -> List[Dict[str, Any
                         retry_count += 1
                         print(f"Rate limit hit for {symbol}, retry {retry_count}/{max_retries}")
                         if retry_count < max_retries:
-                            time.sleep(2 ** retry_count)  # Exponential backoff
+                            #time.sleep(2 ** retry_count)  # Exponential backoff
                             continue
                         else:
                             print(f"Max retries reached for {symbol}")
@@ -165,7 +138,7 @@ def get_all_orders_for_symbol(client: Client, symbol: str) -> List[Dict[str, Any
                     break
                     
                 # Increased delay to respect rate limits
-                time.sleep(0.1)
+                #time.sleep(0.1)
                 
             except Exception as e:
                 print(f"Error fetching page {page_count} for symbol {symbol}: {e}")
@@ -189,32 +162,17 @@ def store_orders_in_s3(symbol: str, orders: List[Dict[str, Any]]) -> str:
         bucket_name = os.environ.get('RESULTS_BUCKET')
         
         # Generate unique key for this symbol
-        timestamp = int(time.time())
-        s3_key = f"symbol_results/{symbol}_{timestamp}.json"
+        s3_key = f"symbol_results/{symbol}_{int(time.time())}.json"
         
-        # Create result object
-        result = {
-            'symbol': symbol,
-            'orders_count': len(orders),
-            'orders': orders,
-            'processed_at': timestamp * 1000,
-            'stored_by': 'symbol_processor'
-        }
-        
-        # Upload to S3
+        # Upload minimal result to S3
         s3_client.put_object(
             Bucket=bucket_name,
             Key=s3_key,
-            Body=json.dumps(result, indent=2, ensure_ascii=False),
-            ContentType='application/json',
-            ServerSideEncryption='AES256'
+            Body=json.dumps({'symbol': symbol, 'orders': orders}, separators=(',', ':')),
+            ContentType='application/json'
         )
         
-        print(f"Stored {len(orders)} orders for {symbol} in S3: s3://{bucket_name}/{s3_key}")
         return s3_key
         
-    except Exception as e:
-        print(f"Error storing orders in S3 for {symbol}: {e}")
-        print(f"Bucket: {bucket_name}, Key: {s3_key}")
-        # Return None to indicate fallback needed
+    except Exception:
         return None

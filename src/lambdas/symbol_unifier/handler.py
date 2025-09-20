@@ -11,110 +11,49 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     deduplica, ordena y prepara para el procesamiento de órdenes
     """
     try:
-        print("Symbol Unifier lambda invoked")
-        
         # Extraer resultados de todas las ventanas
         window_results = event.get('window_results', [])
         if not window_results:
-            # Fallback: buscar en toda la estructura del evento
-            print(f"No window_results found, full event keys: {list(event.keys())}")
             window_results = event
         
-        # Debug: mostrar estructura de window_results
-        print(f"window_results type: {type(window_results)}")
-        if isinstance(window_results, list) and len(window_results) > 0:
-            print(f"First window_result sample: {window_results[0]}")
-            # Ya tenemos la lista, continuar con el procesamiento
-        elif isinstance(window_results, dict):
-            print(f"window_results as dict keys: {list(window_results.keys())}")
-            # Si window_results es dict, extraer la lista real
+        if isinstance(window_results, dict):
             if 'window_results' in window_results:
                 window_results = window_results['window_results']
-                print(f"Extracted window_results, new type: {type(window_results)}")
-            elif isinstance(window_results, dict) and len(window_results) == 1:
-                # Podría ser que toda la estructura esté en una clave
-                for key, value in window_results.items():
+            else:
+                for value in window_results.values():
                     if isinstance(value, list):
-                        print(f"Found list in key '{key}', using it as window_results")
                         window_results = value
                         break
         
-        # Verificar que window_results sea una lista después de todo el procesamiento
         if not isinstance(window_results, list):
-            print(f"ERROR: window_results is not a list after processing: {type(window_results)}")
-            return {
-                'statusCode': 500,
-                'error': f'Invalid window_results format: {type(window_results)}',
-                'message': 'Error unifying symbols',
-                'symbols': []
-            }
-        
-        print(f"Processing results from {len(window_results)} time windows")
+            return {'statusCode': 500, 'symbols': []}
         
         # Combinar todos los símbolos
         all_symbols = set()
         symbol_frequency = Counter()
-        window_stats = []
-        successful_windows = 0
-        failed_windows = 0
         
         for result in window_results:
             try:
                 if isinstance(result, dict):
                     # Extraer payload si viene del Step Function Map
-                    if 'Payload' in result:
-                        payload = result['Payload']
-                        print(f"Extracting from Payload: {type(payload)}")
-                    else:
-                        payload = result
-                        print(f"Using result directly: {type(payload)}")
+                    payload = result['Payload'] if 'Payload' in result else result
                     
-                    window_id = payload.get('window_id', 'unknown')
                     status_code = payload.get('statusCode', 500)
                     symbols = payload.get('symbols', [])
-                    symbols_count = payload.get('symbols_count', 0)
                     
-                    print(f"Processing window {window_id}: status={status_code}, symbols_count={symbols_count}")
-                    
-                    window_stat = {
-                        'window_id': window_id,
-                        'status': 'success' if status_code == 200 else 'failed',
-                        'symbols_count': symbols_count,
-                        'start_date': payload.get('start_date'),
-                        'end_date': payload.get('end_date')
-                    }
-                    window_stats.append(window_stat)
                     
                     if status_code == 200:
-                        successful_windows += 1
-                        # Agregar símbolos al conjunto global
                         for symbol in symbols:
                             all_symbols.add(symbol)
                             symbol_frequency[symbol] += 1
-                        print(f"Window {window_id}: {symbols_count} symbols")
-                    else:
-                        failed_windows += 1
-                        print(f"Window {window_id}: Failed with error: {payload.get('error', 'Unknown')}")
                         
-            except Exception as e:
-                failed_windows += 1
-                print(f"Error processing window result: {e}")
+            except Exception:
+                pass
         
         # Ordenar símbolos por frecuencia (más activos primero) y luego alfabéticamente
-        sorted_symbols = sorted(all_symbols, key=lambda x: (-symbol_frequency[x], x))
+        final_symbols = sorted(all_symbols, key=lambda x: (-symbol_frequency[x], x))
         
-        # Limitar a un número optimizado de símbolos
-        final_symbols = sorted_symbols
         
-        # Estadísticas
-        total_unique_symbols = len(all_symbols)
-        total_processing_symbols = len(final_symbols)
-        
-        print(f"Symbol unification completed:")
-        print(f"- Successful windows: {successful_windows}")
-        print(f"- Failed windows: {failed_windows}")
-        print(f"- Total unique symbols found: {total_unique_symbols}")
-        print(f"- Symbols selected for processing: {total_processing_symbols}")
         
         # Preparar resultado - solo símbolos para optimizar velocidad
         result = {
@@ -122,16 +61,11 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             'symbols': final_symbols
         }
         
-        # Skip S3 stats saving for speed optimization
         
         return result
         
-    except Exception as e:
-        print(f"Error in symbol unifier: {e}")
-        return {
-            'statusCode': 500,
-            'symbols': []
-        }
+    except Exception:
+        return {'statusCode': 500, 'symbols': []}
 
 def save_detailed_stats_to_s3(result: dict, all_symbols: set, symbol_frequency: Counter):
     """

@@ -190,111 +190,52 @@ async def docs_static():
 @app.get("/health")
 async def health_check():
     """Health check del sistema"""
-    return {
-        "status": "healthy",
-        "service": "bitget-orders-api",
-        "version": "2.0.0",
-        "timestamp": int(time.time() * 1000),
-        "step_function_configured": STEP_FUNCTION_ARN is not None,
-    }
+    return {"status": "healthy"}
 
 
-@app.post("/extract-orders", response_model=OrderExtractionResponse)
-async def extract_orders(request_data: OrderExtractionRequest, request: Request):
+@app.post("/extract-orders")
+async def extract_orders(request_data: OrderExtractionRequest):
     """
     Extraer órdenes usando Step Function (flujo completo)
-
-    Este endpoint:
-    1. Obtiene símbolos automáticamente si no se proporcionan
-    2. Ejecuta el Step Function con procesamiento paralelo
-    3. Devuelve el ARN de ejecución para seguimiento
     """
     try:
         if not STEP_FUNCTION_ARN:
-            raise HTTPException(
-                status_code=500, detail="Step Function ARN not configured"
-            )
+            raise HTTPException(status_code=500, detail="Step Function ARN not configured")
 
-        # Start Step Function directly - symbol discovery is now handled internally
-        input_data = {
-            "test_mode": request_data.test_mode,
-            "mode": "test" if request_data.test_mode else "production"
-        }
+        # Execute Step Function with minimal input
+        execution_name = f"extract-{int(time.time())}"
         
-        # Only include symbols if provided (for backwards compatibility)
-        if request_data.symbols:
-            input_data["symbols"] = request_data.symbols
-            symbols_count = len(request_data.symbols)
-        else:
-            symbols_count = "TBD (will be discovered by Step Function)"
-
-        # Execute Step Function
-        execution_name = f"bitget-extraction-{int(time.time())}"
-
-        response = stepfunctions.start_execution(
+        stepfunctions.start_execution(
             stateMachineArn=STEP_FUNCTION_ARN,
             name=execution_name,
-            input=json.dumps(input_data),
-        )
-
-        # Crear link de descarga con URLs completas
-        execution_arn_encoded = response["executionArn"].replace(":", "_")
-        download_link = full_url(request, f"download-result/{execution_arn_encoded}")
-        status_link = full_url(request, f"execution-status/{execution_arn_encoded}")
-
-        message = f"Step Function execution started in {'test' if request_data.test_mode else 'production'} mode. "
-        if request_data.test_mode:
-            message += "Using predefined symbols. "
-        else:
-            message += "Symbol discovery will be performed automatically. "
-        message += "Wait for completion, then use download_link."
-        
-        return OrderExtractionResponse(
-            status="success",
-            message=message,
-            data={
-                "symbols": request_data.symbols or [],
-                "execution_name": execution_name,
-                "symbols_count": symbols_count,
+            input=json.dumps({
                 "test_mode": request_data.test_mode,
-                "download_link": download_link,
-                "status_link": status_link,
-                "instructions": "1. Check status_link until status='SUCCEEDED', 2. Then use download_link to get JSON file",
-                "execution_arn_encoded": execution_arn_encoded,
-                "note": "Symbol discovery handled by Step Function" if not request_data.test_mode else "Test mode with predefined symbols"
-            },
-            execution_arn=response["executionArn"],
+                "mode": "test" if request_data.test_mode else "production"
+            })
         )
+
+        return {
+            "status": "started",
+            "execution_name": execution_name
+        }
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/extract-single-symbol", response_model=OrderExtractionResponse)
+@app.post("/extract-single-symbol")
 async def extract_single_symbol(request: SymbolExtractionRequest):
     """
     Extraer órdenes de un símbolo específico (directo)
-
-    Ejecuta directamente la Lambda procesadora de símbolos
     """
     try:
-        response = lambda_client.invoke(
+        lambda_client.invoke(
             FunctionName="bitget-symbol-processor",
             Payload=json.dumps({"symbol": request.symbol}),
+            InvocationType='Event'  # Async invoke
         )
 
-        result = json.loads(response["Payload"].read())
-
-        if result.get("statusCode") == 200:
-            return OrderExtractionResponse(
-                status="success",
-                message=f"Orders extracted for {request.symbol}",
-                data=result,
-            )
-        else:
-            raise HTTPException(
-                status_code=500, detail=result.get("error", "Unknown error")
-            )
+        return {"status": "started", "symbol": request.symbol}
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -305,14 +246,9 @@ async def get_symbols():
     """
     Obtener lista de símbolos disponibles (predefinidos para testing)
     """
-    # Return predefined test symbols since symbol discovery is now handled by Step Function
-    test_symbols = ["BTCUSDT", "ETHUSDT", "ADAUSDT", "DOGEUSDT", "SOLUSDT"]
-    
     return {
-        "status": "success",
-        "symbols": test_symbols,
-        "count": len(test_symbols),
-        "note": "These are test symbols. Full symbol discovery happens automatically in Step Function."
+        "symbols": ["BTCUSDT", "ETHUSDT", "ADAUSDT", "DOGEUSDT", "SOLUSDT"],
+        "count": 5
     }
 
 
