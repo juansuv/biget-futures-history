@@ -261,6 +261,7 @@ Resources:
                   }
                 }
               },
+              "ResultPath": null,
               "Next": "CollectResults"
             },
             "CollectResults": {

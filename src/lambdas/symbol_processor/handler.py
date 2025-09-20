@@ -1,12 +1,11 @@
 import json
 import time
 import os
-import random
 import boto3
 from typing import Dict, Any, List
 from pybitget import Client
 
-def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
+def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
     """
     Symbol Processor Lambda: Processes a single symbol to extract all its orders
     """
@@ -48,14 +47,10 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         print(f"Extracted {len(orders)} orders for symbol {symbol}")
         
         # Store results in S3 if there are any orders
-        if len(orders) > 0:
-            s3_key = store_orders_in_s3(symbol, orders)
-            if s3_key:
-                return {'statusCode': 200, 'symbol': symbol}
-            else:
-                return {'statusCode': 200, 'symbol': symbol, 'orders': orders[:1]}
-        else:
-            return {'statusCode': 200, 'symbol': symbol}
+        if orders:
+            store_orders_in_s3(symbol, orders)
+        
+        return {'statusCode': 200, 'symbol': symbol}
         
     except Exception:
         return {'statusCode': 500, 'symbol': event.get('symbol', 'unknown')}
@@ -153,26 +148,17 @@ def get_all_orders_for_symbol(client: Client, symbol: str) -> List[Dict[str, Any
         print(f"Error getting orders for symbol {symbol}: {e}")
         return []
 
-def store_orders_in_s3(symbol: str, orders: List[Dict[str, Any]]) -> str:
-    """
-    Store symbol orders in S3 and return the S3 key
-    """
+def store_orders_in_s3(symbol: str, orders: List[Dict[str, Any]]):
     try:
         s3_client = boto3.client('s3')
         bucket_name = os.environ.get('RESULTS_BUCKET')
-        
-        # Generate unique key for this symbol
         s3_key = f"symbol_results/{symbol}_{int(time.time())}.json"
         
-        # Upload minimal result to S3
         s3_client.put_object(
             Bucket=bucket_name,
             Key=s3_key,
-            Body=json.dumps({'symbol': symbol, 'orders': orders}, separators=(',', ':')),
+            Body=json.dumps({'orders': orders}, separators=(',', ':')),
             ContentType='application/json'
         )
-        
-        return s3_key
-        
     except Exception:
-        return None
+        pass
