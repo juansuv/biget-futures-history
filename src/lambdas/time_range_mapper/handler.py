@@ -13,10 +13,10 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         
         # Configuración de rangos de tiempo
         end_time = int(time.time() * 1000)  # Ahora en milisegundos
-        start_time = 1514764800000 # 2018-01-01 in milliseconds
+        start_time = end_time - (9 * 365 * 24 * 60 * 60 * 1000)  # 8 años atrás
         
-        # Tamaño de ventana: 3 meses para mayor paralelismo
-        window_size_ms = 3 * 30 * 24 * 60 * 60 * 1000  # 3 meses en milisegundos
+        # Tamaño de ventana: 6 meses
+        window_size_ms = 6 * 30 * 24 * 60 * 60 * 1000  # 6 meses en milisegundos
         
         # Generar ventanas de tiempo
         time_windows = []
@@ -40,7 +40,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             current_start = current_end + 1
             window_id += 1
         
-        print(f"Generated {len(time_windows)} time windows of ~3 months each")
+        print(f"Generated {len(time_windows)} time windows of ~6 months each")
         print(f"Time range: {datetime.fromtimestamp(start_time / 1000).isoformat()} to {datetime.fromtimestamp(end_time / 1000).isoformat()}")
         
         # Resultado para el Step Function
@@ -50,7 +50,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             'time_windows': time_windows,
             'total_windows': len(time_windows),
             'total_years': 8,
-            'window_size_months': 3
+            'window_size_months': 6
         }
         
         return result

@@ -89,7 +89,7 @@ def search_symbols_in_window(client: Client, start_time: int, end_time: int, win
                     productType="umcbl",  # USDT-M futures
                     startTime=str(start_time),
                     endTime=str(end_time),
-                    pageSize="1000",  # Máximo permitido
+                    pageSize="100",  # Máximo permitido
                     lastEndId=last_end_id,
                     isPre=False,
                 )
@@ -114,7 +114,7 @@ def search_symbols_in_window(client: Client, start_time: int, end_time: int, win
                 print(f"Window {window_id}, page {page}: Found {len(page_symbols)} new symbols, total: {len(symbols)}")
                 
                 # Early exit si encontramos suficientes símbolos
-                if len(symbols) >= 60:
+                if len(symbols) >= 360:
                     print(f"Window {window_id}: Found enough symbols ({len(symbols)}), stopping early")
                     break
                 
