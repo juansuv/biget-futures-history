@@ -34,6 +34,26 @@ Globals:
         BITGET_PASSPHRASE: !Ref BitgetPassphrase
 
 Resources:
+  # S3 Bucket for storing large results
+  ResultsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'bitget-results-${AWS::StackName}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldResults
+            Status: Enabled
+            ExpirationInDays: 30
+
   # Symbol Processor Lambda Function
   SymbolProcessorFunction:
     Type: AWS::Serverless::Function
@@ -42,6 +62,17 @@ Resources:
       CodeUri: src/lambdas/symbol_processor/
       Handler: handler.lambda_handler
       MemorySize: 900
+      Environment:
+        Variables:
+          RESULTS_BUCKET: !Ref ResultsBucket
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:PutObject
+                - s3:PutObjectAcl
+              Resource: !Sub '${ResultsBucket.Arn}/*'
 
   # Result Collector Lambda Function  
   ResultCollectorFunction:
@@ -51,6 +82,23 @@ Resources:
       CodeUri: src/lambdas/result_collector/
       Handler: handler.lambda_handler
       MemorySize: 900
+      Environment:
+        Variables:
+          RESULTS_BUCKET: !Ref ResultsBucket
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:PutObject
+                - s3:PutObjectAcl
+                - s3:GetObject
+                - s3:GetObjectVersion
+              Resource: !Sub '${ResultsBucket.Arn}/*'
+            - Effect: Allow
+              Action:
+                - s3:ListBucket
+              Resource: !GetAtt ResultsBucket.Arn
 
   # Step Function Role
   StepFunctionRole:
@@ -97,7 +145,7 @@ Resources:
                     "Type": "Task",
                     "Resource": "arn:aws:states:::lambda:invoke",
                     "Parameters": {
-                      "FunctionName": "${SymbolProcessorFunction}",
+                      "FunctionName": "${SymbolProcessorFunction.Arn}",
                       "Payload": {
                         "symbol.$": "$"
                       }
@@ -113,10 +161,11 @@ Resources:
               "Type": "Task",
               "Resource": "arn:aws:states:::lambda:invoke",
               "Parameters": {
-                "FunctionName": "${ResultCollectorFunction}",
+                "FunctionName": "${ResultCollectorFunction.Arn}",
                 "Payload": {
                   "parallel_results.$": "$.parallel_results",
-                  "original_input.$": "$"
+                  "original_input.$": "$",
+                  "execution_arn.$": "$$.Execution.Name"
                 }
               },
               "ResultPath": "$.final_result",
@@ -153,6 +202,7 @@ Resources:
       Environment:
         Variables:
           STEP_FUNCTION_ARN: !Ref OrderExtractionStateMachine
+          RESULTS_BUCKET: !Ref ResultsBucket
       Policies:
         - StepFunctionsExecutionPolicy:
             StateMachineName: !GetAtt OrderExtractionStateMachine.Name
@@ -167,6 +217,15 @@ Resources:
                 - stepfunctions:DescribeExecution
                 - stepfunctions:ListExecutions
               Resource: '*'
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:GetObjectVersion
+              Resource: !Sub '${ResultsBucket.Arn}/*'
+            - Effect: Allow
+              Action:
+                - s3:ListBucket
+              Resource: !GetAtt ResultsBucket.Arn
       Events:
         ApiGateway:
           Type: Api
@@ -178,7 +237,6 @@ Resources:
           Properties:
             Path: /
             Method: ANY
-            RestApiId: !Ref ServerlessRestApi
 
   # API Gateway Configuration
   ServerlessRestApi:

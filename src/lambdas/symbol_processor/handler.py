@@ -2,6 +2,7 @@ import json
 import time
 import os
 import random
+import boto3
 from typing import Dict, Any, List
 from pybitget import Client
 
@@ -45,14 +46,31 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         
         # Extract all orders for this symbol
         orders = get_all_orders_for_symbol(client, symbol)
-        print(f"Extracted {len(orders)} orders for symbol {symbol}, ORDERS: {orders}")
-        return {
-            'statusCode': 200,
-            'symbol': symbol,
-            'orders_count': len(orders),
-            'orders': orders,
-            'processed_at': int(time.time() * 1000)
-        }
+        print(f"Extracted {len(orders)} orders for symbol {symbol}")
+        
+        # Store results in S3 if there are many orders (> 10)
+        if len(orders) > 10:
+            s3_key = store_orders_in_s3(symbol, orders)
+            return {
+                'statusCode': 200,
+                'symbol': symbol,
+                'orders_count': len(orders),
+                'orders': [],  # Empty to avoid data limit
+                's3_key': s3_key,
+                's3_bucket': os.environ.get('RESULTS_BUCKET', 'bitget-trading-results'),
+                'stored_in_s3': True,
+                'processed_at': int(time.time() * 1000)
+            }
+        else:
+            # For small results, return directly
+            return {
+                'statusCode': 200,
+                'symbol': symbol,
+                'orders_count': len(orders),
+                'orders': orders,
+                'stored_in_s3': False,
+                'processed_at': int(time.time() * 1000)
+            }
         
     except Exception as e:
         return {
@@ -156,3 +174,41 @@ def get_all_orders_for_symbol(client: Client, symbol: str) -> List[Dict[str, Any
     except Exception as e:
         print(f"Error getting orders for symbol {symbol}: {e}")
         return []
+
+def store_orders_in_s3(symbol: str, orders: List[Dict[str, Any]]) -> str:
+    """
+    Store symbol orders in S3 and return the S3 key
+    """
+    try:
+        s3_client = boto3.client('s3')
+        bucket_name = os.environ.get('RESULTS_BUCKET', 'bitget-trading-results')
+        
+        # Generate unique key for this symbol
+        timestamp = int(time.time())
+        s3_key = f"symbol_results/{symbol}_{timestamp}.json"
+        
+        # Create result object
+        result = {
+            'symbol': symbol,
+            'orders_count': len(orders),
+            'orders': orders,
+            'processed_at': timestamp * 1000,
+            'stored_by': 'symbol_processor'
+        }
+        
+        # Upload to S3
+        s3_client.put_object(
+            Bucket=bucket_name,
+            Key=s3_key,
+            Body=json.dumps(result, indent=2, ensure_ascii=False),
+            ContentType='application/json',
+            ServerSideEncryption='AES256'
+        )
+        
+        print(f"Stored {len(orders)} orders for {symbol} in S3: s3://{bucket_name}/{s3_key}")
+        return s3_key
+        
+    except Exception as e:
+        print(f"Error storing orders in S3 for {symbol}: {e}")
+        # Return None to indicate fallback needed
+        return None

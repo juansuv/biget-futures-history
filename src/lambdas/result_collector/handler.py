@@ -76,7 +76,6 @@ def combine_and_sort_orders(parallel_results: List[Dict[str, Any]]) -> Dict[str,
             
             symbol = payload.get('symbol', 'unknown')
             status_code = payload.get('statusCode', 500)
-            orders = payload.get('orders', [])
             orders_count = payload.get('orders_count', 0)
             
             # Update processing summary
@@ -84,11 +83,28 @@ def combine_and_sort_orders(parallel_results: List[Dict[str, Any]]) -> Dict[str,
                 'status_code': status_code,
                 'orders_count': orders_count,
                 'processed_at': payload.get('processed_at'),
-                'success': status_code == 200
+                'success': status_code == 200,
+                'stored_in_s3': payload.get('stored_in_s3', False)
             }
             
             if status_code == 200:
                 successful_symbols.append(symbol)
+                
+                # Check if orders are stored in S3
+                if payload.get('stored_in_s3', False):
+                    # Load orders from S3
+                    s3_key = payload.get('s3_key')
+                    s3_bucket = payload.get('s3_bucket')
+                    if s3_key and s3_bucket:
+                        orders = load_orders_from_s3(s3_bucket, s3_key)
+                        print(f"Loaded {len(orders)} orders for {symbol} from S3")
+                    else:
+                        orders = []
+                        print(f"Missing S3 reference for {symbol}")
+                else:
+                    # Use orders directly from payload
+                    orders = payload.get('orders', [])
+                
                 # Add symbol info to each order for tracking
                 if orders and isinstance(orders, list):
                     for order in orders:
@@ -202,3 +218,27 @@ def store_result_in_s3(result: Dict[str, Any], execution_arn: str = None) -> str
         print(f"Error storing result in S3: {e}")
         # Fallback: return None and include orders in response (truncated)
         return None
+
+def load_orders_from_s3(bucket_name: str, s3_key: str) -> List[Dict[str, Any]]:
+    """
+    Load orders from S3
+    """
+    try:
+        s3_client = boto3.client('s3')
+        
+        # Get object from S3
+        response = s3_client.get_object(Bucket=bucket_name, Key=s3_key)
+        content = response['Body'].read().decode('utf-8')
+        
+        # Parse JSON
+        data = json.loads(content)
+        
+        # Extract orders
+        orders = data.get('orders', [])
+        print(f"Loaded {len(orders)} orders from s3://{bucket_name}/{s3_key}")
+        
+        return orders
+        
+    except Exception as e:
+        print(f"Error loading orders from S3 s3://{bucket_name}/{s3_key}: {e}")
+        return []
