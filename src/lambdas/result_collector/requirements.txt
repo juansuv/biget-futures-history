@@ -1,1 +1,1 @@
-# No external dependencies for result collector
+boto3

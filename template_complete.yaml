@@ -17,6 +17,11 @@ Parameters:
     Default: '22Dominic22'
     Description: Bitget Passphrase
     NoEcho: true
+  EnableApiGatewayLogs:
+    Type: String
+    Default: 'true'
+    Description: Enable API Gateway CloudWatch logs
+    AllowedValues: ['true', 'false']
 
 Globals:
   Function:
@@ -174,6 +179,45 @@ Resources:
           Properties:
             Path: /
             Method: ANY
+            RestApiId: !Ref ServerlessRestApi
+
+  # API Gateway Configuration
+  ServerlessRestApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: Prod
+      TracingEnabled: true
+      MethodSettings:
+        - ResourcePath: '/*'
+          HttpMethod: '*'
+          LoggingLevel: !If [EnableLogging, 'INFO', 'OFF']
+          DataTraceEnabled: !If [EnableLogging, true, false]
+          MetricsEnabled: true
+      AccessLogSetting:
+        DestinationArn: !GetAtt ApiGatewayLogGroup.Arn
+        Format: !Sub |
+          {
+            "requestId": "$context.requestId",
+            "ip": "$context.identity.sourceIp",
+            "caller": "$context.identity.caller",
+            "user": "$context.identity.user",
+            "requestTime": "$context.requestTime",
+            "httpMethod": "$context.httpMethod",
+            "resourcePath": "$context.resourcePath",
+            "status": "$context.status",
+            "protocol": "$context.protocol",
+            "responseLength": "$context.responseLength"
+          }
+
+  # CloudWatch Log Group for API Gateway
+  ApiGatewayLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/apigateway/${AWS::StackName}'
+      RetentionInDays: 14
+
+Conditions:
+  EnableLogging: !Equals [!Ref EnableApiGatewayLogs, 'true']
 
 Outputs:
   ApiGatewayUrl:

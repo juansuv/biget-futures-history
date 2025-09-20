@@ -1,8 +1,8 @@
 import json
 import time
+import os
 from typing import Dict, Any, List
 from pybitget import Client
-from config import BitgetConfig
 
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
@@ -16,12 +16,25 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         if not symbol:
             raise ValueError("Symbol not provided in event")
         
-        # Initialize Bitget client
-        config = BitgetConfig.from_env()
+        # Initialize Bitget client using environment variables
+        api_key = os.environ.get('BITGET_API_KEY')
+        secret_key = os.environ.get('BITGET_SECRET_KEY')
+        passphrase = os.environ.get('BITGET_PASSPHRASE')
+        
+        if not all([api_key, secret_key, passphrase]):
+            return {
+                'statusCode': 500,
+                'symbol': symbol,
+                'error': 'Missing Bitget credentials in environment variables',
+                'orders': [],
+                'orders_count': 0,
+                'processed_at': int(time.time() * 1000)
+            }
+        
         client = Client(
-            api_key=config.api_key,
-            api_secret_key=config.secret_key,
-            passphrase=config.passphrase
+            api_key=api_key,
+            api_secret_key=secret_key,
+            passphrase=passphrase
         )
         
         # Extract all orders for this symbol

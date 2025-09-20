@@ -1,25 +1,45 @@
 import json
 import time
+import os
 import boto3
 from typing import List, Dict, Any
 from pybitget import Client
-from .config import BitgetConfig
 
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     Coordinator Lambda: Detects all symbols with trades and initiates Step Function
     """
     try:
-        # Initialize Bitget client
-        config = BitgetConfig.from_env()
+        # Initialize Bitget client using environment variables
+        api_key = os.environ.get('BITGET_API_KEY')
+        secret_key = os.environ.get('BITGET_SECRET_KEY')
+        passphrase = os.environ.get('BITGET_PASSPHRASE')
+        
+        if not all([api_key, secret_key, passphrase]):
+            return {
+                'statusCode': 500,
+                'body': json.dumps({
+                    'error': 'Missing Bitget credentials in environment variables',
+                    'message': 'Error in coordinator lambda'
+                })
+            }
+        
         client = Client(
-            api_key=config.api_key,
-            api_secret_key=config.secret_key,
-            passphrase=config.passphrase
+            api_key=api_key,
+            api_secret_key=secret_key,
+            passphrase=passphrase
         )
         
-        # Get all symbols with futures trades
-        symbols_with_trades = get_symbols_with_trades(client)
+        # Get test mode from event
+        test_mode = event.get('test_mode', False)
+        
+        if test_mode:
+            # Return test symbols
+            symbols_with_trades = ["BTCUSDT", "ETHUSDT", "ADAUSDT", "DOGEUSDT", "SOLUSDT"]
+        else:
+            # Get all symbols with futures trades
+            symbols_with_trades = get_symbols_with_trades(client)
+        
         print(f"Symbols with trades: {symbols_with_trades}")
         if not symbols_with_trades:
             return {
@@ -39,7 +59,8 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             'statusCode': 200,
             'body': json.dumps({
                 'message': f'Found {len(symbols_with_trades)} symbols with trades',
-                'symbols': symbols_with_trades
+                'symbols': symbols_with_trades,
+                'test_mode': test_mode
             })
         }
         
