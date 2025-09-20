@@ -1,5 +1,7 @@
 import json
 import time
+import boto3
+import os
 from typing import Dict, Any, List
 from datetime import datetime
 
@@ -26,9 +28,24 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         # Combine and process all results
         combined_result = combine_and_sort_orders(parallel_results)
         
+        # Store large result in S3 and return minimal summary
+        s3_key = store_result_in_s3(combined_result, execution_arn=event.get('execution_arn'))
+        
+        # Return minimal summary to avoid Step Function data limits
+        summary = {
+            'message': 'Orders processed and stored in S3',
+            'processing_timestamp': combined_result['processing_timestamp'],
+            'total_orders': combined_result['total_orders'],
+            'symbols_processed': combined_result['symbols_processed'],
+            'symbols_failed': combined_result['symbols_failed'],
+            's3_key': s3_key,
+            's3_bucket': os.environ.get('RESULTS_BUCKET', 'bitget-trading-results'),
+            'orders_truncated': True
+        }
+        
         return {
             'statusCode': 200,
-            'body': json.dumps(combined_result, indent=2)
+            'body': json.dumps(summary, indent=2)
         }
         
     except Exception as e:
@@ -101,13 +118,13 @@ def combine_and_sort_orders(parallel_results: List[Dict[str, Any]]) -> Dict[str,
     symbols_processed = len(successful_symbols)
     symbols_failed = len(failed_symbols)
     
-    # Group orders by symbol for summary
-    orders_by_symbol = {}
-    for order in all_orders:
-        symbol = order.get('symbol', 'unknown')
-        if symbol not in orders_by_symbol:
-            orders_by_symbol[symbol] = []
-        orders_by_symbol[symbol].append(order)
+    # # Group orders by symbol for summary
+    # orders_by_symbol = {}
+    # for order in all_orders:
+    #     symbol = order.get('symbol', 'unknown')
+    #     if symbol not in orders_by_symbol:
+    #         orders_by_symbol[symbol] = []
+    #     orders_by_symbol[symbol].append(order)
     
     # Calculate date range
     date_range = get_date_range(all_orders)
@@ -122,7 +139,7 @@ def combine_and_sort_orders(parallel_results: List[Dict[str, Any]]) -> Dict[str,
         'successful_symbols': successful_symbols,
         'failed_symbols': failed_symbols,
         'processing_summary': processing_summary,
-        'orders_by_symbol_count': {symbol: len(orders) for symbol, orders in orders_by_symbol.items()},
+        #'orders_by_symbol_count': {symbol: len(orders) for symbol, orders in orders_by_symbol.items()},
         'orders': all_orders
     }
 
@@ -155,3 +172,33 @@ def get_date_range(orders: List[Dict[str, Any]]) -> Dict[str, Any]:
         'latest_timestamp': latest_ts,
         'total_days': round(total_days, 2)
     }
+
+def store_result_in_s3(result: Dict[str, Any], execution_arn: str = None) -> str:
+    """
+    Store large result in S3 and return the S3 key
+    """
+    try:
+        s3_client = boto3.client('s3')
+        bucket_name = os.environ.get('RESULTS_BUCKET', 'bitget-trading-results')
+        
+        # Generate unique key
+        timestamp = int(time.time())
+        execution_id = execution_arn.split(':')[-1] if execution_arn else 'unknown'
+        s3_key = f"results/{timestamp}_{execution_id}.json"
+        
+        # Upload to S3
+        s3_client.put_object(
+            Bucket=bucket_name,
+            Key=s3_key,
+            Body=json.dumps(result, indent=2, ensure_ascii=False),
+            ContentType='application/json',
+            ServerSideEncryption='AES256'
+        )
+        
+        print(f"Stored result in S3: s3://{bucket_name}/{s3_key}")
+        return s3_key
+        
+    except Exception as e:
+        print(f"Error storing result in S3: {e}")
+        # Fallback: return None and include orders in response (truncated)
+        return None
