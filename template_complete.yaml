@@ -157,6 +157,7 @@ Resources:
                 - s3:PutObjectAcl
                 - s3:GetObject
                 - s3:GetObjectVersion
+                - s3:DeleteObject
               Resource: !Sub '${ResultsBucket.Arn}/*'
             - Effect: Allow
               Action:

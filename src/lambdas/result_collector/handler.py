@@ -17,13 +17,22 @@ def lambda_handler(event: Dict[str, Any], _) -> Dict[str, Any]:
         # Store sorted orders in S3 
         s3_result = store_result_in_s3(combined_result.get('orders', []), execution_arn=event.get('execution_arn'))
         
+        # Prepare response with URLs
+        response_data = {
+            'message': 'Orders processed successfully',
+            'total_orders': len(combined_result.get('orders', []))
+        }
+        
+        # Add S3 result info if available
+        if s3_result:
+            if isinstance(s3_result, dict):
+                response_data.update(s3_result)
+            else:
+                response_data['s3_key'] = s3_result
+        
         return {
             'statusCode': 200,
-            'body': json.dumps({
-                'message': 'Orders processed successfully',
-                'total_orders': len(combined_result.get('orders', [])),
-                's3_key': s3_result if s3_result else None
-            })
+            'body': json.dumps(response_data)
         }
         
     except Exception as e:
@@ -64,12 +73,16 @@ def store_result_in_s3(all_orders: List[Dict[str, Any]], execution_arn: str = No
             Body=json_body,
             ContentType='application/json',
             ServerSideEncryption='AES256',
-            ACL='bucket-owner-full-control'
+            ACL='public-read'
         )
         
-        print(f"Stored clean result in S3: s3://{bucket_name}/{s3_key}")
+        # Generate public URL (direct access)
+        public_url = f"https://{bucket_name}.s3.amazonaws.com/{s3_key}"
         
-        # Generate presigned URL for direct download
+        print(f"Stored clean result in S3: s3://{bucket_name}/{s3_key}")
+        print(f"Public URL: {public_url}")
+        
+        # Also generate presigned URL as backup
         try:
             presigned_url = s3_client.generate_presigned_url(
                 'get_object',
@@ -77,10 +90,17 @@ def store_result_in_s3(all_orders: List[Dict[str, Any]], execution_arn: str = No
                 ExpiresIn=3600 * 24 * 7  # 7 days
             )
             print(f"Generated presigned URL: {presigned_url}")
-            return {'s3_key': s3_key, 'presigned_url': presigned_url}
+            return {
+                's3_key': s3_key, 
+                'public_url': public_url,
+                'presigned_url': presigned_url
+            }
         except Exception as e:
             print(f"Error generating presigned URL: {e}")
-            return s3_key
+            return {
+                's3_key': s3_key, 
+                'public_url': public_url
+            }
         
     except Exception as e:
         print(f"Error storing result in S3: {e}")
@@ -148,6 +168,10 @@ def collect_results_from_s3() -> Dict[str, Any]:
         all_orders.sort(key=safe_ctime_parse, reverse=True)
         print(f"✅ Orders sorted globally by cTime")
         
+        # Clean up symbol_results folder after processing
+        if json_files:
+            cleanup_symbol_results(bucket_name, json_files)
+        
         return {
             'message': 'Orders successfully collected from S3 with parallel processing',
             'orders': all_orders
@@ -189,6 +213,45 @@ def safe_ctime_parse(order: Dict[str, Any]) -> int:
         return int(str(ctime))
     except (ValueError, TypeError):
         return 0
+
+
+def cleanup_symbol_results(bucket_name: str, json_files: List[str]) -> None:
+    """
+    Clean up symbol_results folder by deleting all processed files
+    """
+    try:
+        s3_client = boto3.client('s3')
+        
+        # Delete files in batches (S3 delete_objects supports up to 1000 objects)
+        batch_size = 1000
+        deleted_count = 0
+        
+        for i in range(0, len(json_files), batch_size):
+            batch = json_files[i:i + batch_size]
+            
+            # Prepare delete request
+            delete_objects = {
+                'Objects': [{'Key': key} for key in batch]
+            }
+            
+            # Delete batch
+            try:
+                response = s3_client.delete_objects(
+                    Bucket=bucket_name,
+                    Delete=delete_objects
+                )
+                deleted_in_batch = len(response.get('Deleted', []))
+                deleted_count += deleted_in_batch
+                print(f"🗑️ Deleted {deleted_in_batch} files from symbol_results")
+                
+            except Exception as e:
+                print(f"❌ Error deleting batch: {e}")
+        
+        print(f"✅ Cleanup completed: {deleted_count}/{len(json_files)} files deleted from symbol_results")
+        
+    except Exception as e:
+        print(f"❌ Error during cleanup: {e}")
+        # Don't raise - cleanup failure shouldn't stop the main process
 
 
 def remove_global_duplicates(all_orders: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

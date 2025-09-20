@@ -9,13 +9,18 @@ Sistema ultra-optimizado de extracción de órdenes de trading de Bitget usando 
 │   FastAPI       │    │   Step Function     │    │   Time Windows      │
 │   Application   │───▶│   (Ultra-Fast)      │───▶│   (3-month chunks)  │
 └─────────────────┘    └─────────────────────┘    └─────────────────────┘
-                                _____________________________|
-                                │                             
-                                ▼                             
-                       ┌─────────────────────┐    ┌─────────────────────┐
-                       │   Symbol Discovery  │    │   Symbol Processing │
-                       │   (Parallel Map)    │───▶│   (Parallel Map)    │
-                       └─────────────────────┘    └─────────────────────┘
+                                                            |
+                                                            ▼         
+                                                 ┌─────────────────────┐  
+                                                 │   Symbol Discovery  │  
+                                                 │   (Parallel Map)    │
+                                                 └─────────────────────┘  
+                                                             │
+                                                             ▼
+                                                  ┌─────────────────────┐
+                                                  │   Symbol Processing │
+                                                  │   (Parallel Map)    │
+                                                  └─────────────────────┘
                                                              │
                                                              ▼
                                                   ┌─────────────────────┐
