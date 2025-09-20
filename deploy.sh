@@ -158,15 +158,14 @@ find src -maxdepth 3 -type d \( -name "aiohttp*" -o -name "requests*" -o -name "
 
 echo "✅ Source directory cleaned"
 
-# Delete existing stack if it exists
-echo "🗑️  Checking for existing stack..."
+# Check if stack exists but don't delete it (to preserve S3 bucket)
+echo "🔍 Checking for existing stack..."
 aws cloudformation describe-stacks --stack-name $STACK_NAME &>/dev/null
 if [ $? -eq 0 ]; then
-    echo "Deleting existing stack: $STACK_NAME"
-    aws cloudformation delete-stack --stack-name $STACK_NAME
-    echo "⏳ Waiting for stack deletion..."
-    aws cloudformation wait stack-delete-complete --stack-name $STACK_NAME
-    echo "✅ Stack deleted"
+    echo "ℹ️  Stack $STACK_NAME already exists. Will update in place."
+    echo "ℹ️  S3 bucket will be preserved with existing data."
+else
+    echo "ℹ️  Stack $STACK_NAME does not exist. Will create new."
 fi
 
 # Setup CloudWatch Logs

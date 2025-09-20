@@ -7,26 +7,33 @@ from datetime import datetime
 
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
-    Result Collector Lambda: Combines all parallel results and sorts chronologically
+    Result Collector Lambda: Collects results from S3 symbol_results folder
     """
     try:
-        # Extract parallel results from event
-        parallel_results = event.get('parallel_results', [])
+        # Check if we should collect from S3
+        collect_from_s3 = event.get('collect_from_s3', False)
         
-        if not parallel_results:
-            return {
-                'statusCode': 200,
-                'body': json.dumps({
-                    'message': 'No results to process',
-                    'total_orders': 0,
-                    'orders': [],
-                    'symbols_processed': 0,
-                    'processing_summary': {}
-                })
-            }
+        if collect_from_s3:
+            print("Collecting results directly from S3 symbol_results folder")
+            combined_result = collect_results_from_s3()
+        else:
+            # Legacy mode: Extract parallel results from event
+            parallel_results = event.get('parallel_results', [])
         
-        # Combine and process all results
-        combined_result = combine_and_sort_orders(parallel_results)
+            if not parallel_results:
+                return {
+                    'statusCode': 200,
+                    'body': json.dumps({
+                        'message': 'No results to process',
+                        'total_orders': 0,
+                        'orders': [],
+                        'symbols_processed': 0,
+                        'processing_summary': {}
+                    })
+                }
+            
+            # Combine and process all results
+            combined_result = combine_and_sort_orders(parallel_results)
         
         # Store large result in S3 and return minimal summary
         s3_result = store_result_in_s3(combined_result, execution_arn=event.get('execution_arn'))
@@ -287,3 +294,92 @@ def load_orders_from_s3(bucket_name: str, s3_key: str) -> List[Dict[str, Any]]:
     except Exception as e:
         print(f"Error loading orders from S3 s3://{bucket_name}/{s3_key}: {e}")
         return []
+
+def collect_results_from_s3() -> Dict[str, Any]:
+    """
+    Collect all results directly from S3 symbol_results folder
+    """
+    try:
+        s3_client = boto3.client('s3')
+        bucket_name = os.environ.get('RESULTS_BUCKET')
+        
+        if not bucket_name:
+            raise Exception("RESULTS_BUCKET environment variable not set")
+        
+        print(f"Collecting results from s3://{bucket_name}/symbol_results/")
+        
+        # List all files in symbol_results folder
+        response = s3_client.list_objects_v2(
+            Bucket=bucket_name,
+            Prefix='symbol_results/'
+        )
+        
+        all_orders = []
+        successful_symbols = []
+        failed_symbols = []
+        total_files = 0
+        
+        if 'Contents' in response:
+            total_files = len(response['Contents'])
+            print(f"Found {total_files} files in symbol_results folder")
+            
+            for obj in response['Contents']:
+                s3_key = obj['Key']
+                if not s3_key.endswith('.json'):
+                    continue
+                    
+                try:
+                    # Download and parse JSON file
+                    file_response = s3_client.get_object(Bucket=bucket_name, Key=s3_key)
+                    content = file_response['Body'].read().decode('utf-8')
+                    data = json.loads(content)
+                    
+                    symbol = data.get('symbol', 'unknown')
+                    orders = data.get('orders', [])
+                    orders_count = len(orders)
+                    
+                    print(f"Processing {symbol}: {orders_count} orders from {s3_key}")
+                    
+                    if orders_count > 0:
+                        successful_symbols.append(symbol)
+                        # Add symbol info to each order
+                        for order in orders:
+                            if isinstance(order, dict):
+                                order['processing_symbol'] = symbol
+                                all_orders.append(order)
+                    else:
+                        successful_symbols.append(symbol)
+                        
+                except Exception as e:
+                    print(f"Error processing {s3_key}: {e}")
+                    failed_symbols.append({
+                        'symbol': s3_key.split('/')[-1].replace('.json', ''),
+                        'error': str(e)
+                    })
+        else:
+            print("No files found in symbol_results folder")
+        
+        # Sort all orders chronologically (newest first)
+        all_orders.sort(key=lambda x: int(x.get('createTime', 0)), reverse=True)
+        
+        # Calculate date range
+        date_range = get_date_range(all_orders)
+        
+        print(f"Collection complete: {len(all_orders)} total orders from {len(successful_symbols)} symbols")
+        
+        return {
+            'message': 'Orders successfully collected from S3',
+            'processing_timestamp': int(time.time() * 1000),
+            'total_orders': len(all_orders),
+            'symbols_processed': len(successful_symbols),
+            'symbols_failed': len(failed_symbols),
+            'date_range': date_range,
+            'successful_symbols': successful_symbols,
+            'failed_symbols': failed_symbols,
+            'files_processed': total_files,
+            'orders': all_orders
+        }
+        
+    except Exception as e:
+        print(f"Error collecting results from S3: {e}")
+        raise

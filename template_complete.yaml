@@ -37,8 +37,9 @@ Resources:
   # S3 Bucket for storing large results
   ResultsBucket:
     Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
     Properties:
-      BucketName: !Sub 'bitget-results-${AWS::StackName}'
+      BucketName: !Sub 'bitget-results-${AWS::StackName}-${AWS::AccountId}-${AWS::Region}'
       PublicAccessBlockConfiguration:
         BlockPublicAcls: false
         BlockPublicPolicy: false
@@ -52,7 +53,9 @@ Resources:
         Rules:
           - Id: DeleteOldResults
             Status: Enabled
-            ExpirationInDays: 30
+            ExpirationInDays: 7
+      VersioningConfiguration:
+        Status: Suspended
 
   # S3 Bucket Policy for public read access to results
   ResultsBucketPolicy:
@@ -210,7 +213,7 @@ Resources:
             "DiscoverSymbolsInParallel": {
               "Type": "Map",
               "ItemsPath": "$.time_ranges.Payload.time_windows",
-              "MaxConcurrency": 20,
+              "MaxConcurrency": 8,
               "Iterator": {
                 "StartAt": "SearchSymbolsInWindow",
                 "States": {
@@ -241,7 +244,7 @@ Resources:
             "ProcessSymbolsInParallel": {
               "Type": "Map",
               "ItemsPath": "$.unified_symbols.Payload.symbols",
-              "MaxConcurrency": 20,
+              "MaxConcurrency": 10,
               "Iterator": {
                 "StartAt": "ProcessSingleSymbol",
                 "States": {
@@ -258,7 +261,6 @@ Resources:
                   }
                 }
               },
-              "ResultPath": "$.parallel_results",
               "Next": "CollectResults"
             },
             "CollectResults": {
@@ -267,10 +269,8 @@ Resources:
               "Parameters": {
                 "FunctionName": "${ResultCollectorFunction.Arn}",
                 "Payload": {
-                  "parallel_results.$": "$.parallel_results",
-                  "original_input.$": "$",
                   "execution_arn.$": "$$.Execution.Name",
-                  "symbol_discovery_stats.$": "$.unified_symbols.Payload"
+                  "collect_from_s3": true
                 }
               },
               "ResultPath": "$.final_result",

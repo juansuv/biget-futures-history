@@ -125,14 +125,14 @@ def search_symbols_in_window(client: Client, start_time: int, end_time: int, win
                 last_end_id = end_id or order_list[-1].get("orderId", "")
                 page += 1
                 
-                # Pequeña pausa para respetar rate limits
-                time.sleep(0.1)
+                # Pausa más larga para respetar rate limits
+                time.sleep(0.2)
                 
             except Exception as api_error:
                 error_msg = str(api_error).lower()
                 if 'rate' in error_msg or '429' in error_msg:
                     print(f"Window {window_id}: Rate limit hit, backing off...")
-                    time.sleep(2)
+                    time.sleep(0.2)  # Backoff más largo
                     continue
                 else:
                     print(f"Window {window_id}: API error on page {page}: {api_error}")
