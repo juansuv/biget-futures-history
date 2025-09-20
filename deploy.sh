@@ -36,7 +36,6 @@ watch_logs() {
     echo "🔍 To watch logs in real-time, use these commands:"
     echo ""
     echo "# Watch all Lambda logs:"
-    echo "aws logs tail '/aws/lambda/bitget-coordinator' --follow"
     echo "aws logs tail '/aws/lambda/bitget-time-range-mapper' --follow"
     echo "aws logs tail '/aws/lambda/bitget-symbol-searcher' --follow"
     echo "aws logs tail '/aws/lambda/bitget-symbol-unifier' --follow"
@@ -217,7 +216,7 @@ aws apigateway put-account \
 # Verify requirements.txt files exist for all functions
 echo ""
 echo "📋 Verifying requirements files..."
-FUNCTIONS=("coordinator" "symbol_processor" "result_collector" "time_range_mapper" "symbol_searcher" "symbol_unifier")
+FUNCTIONS=("symbol_processor" "result_collector" "time_range_mapper" "symbol_searcher" "symbol_unifier")
 API_REQUIREMENTS="src/api/requirements.txt"
 
 for func in "${FUNCTIONS[@]}"; do

@@ -43,17 +43,13 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 
             summary = {
                 'message': 'Orders processed and stored in S3',
-                'processing_timestamp': combined_result['processing_timestamp'],
                 'total_orders': combined_result['total_orders'],
                 'symbols_processed': combined_result['symbols_processed'],
                 'symbols_failed': combined_result['symbols_failed'],
                 's3_key': s3_key,
                 's3_bucket': os.environ.get('RESULTS_BUCKET'),
-                'orders_truncated': True
+                'direct_download_url': presigned_url if presigned_url else f"https://{os.environ.get('RESULTS_BUCKET')}.s3.amazonaws.com/{s3_key}"
             }
-            
-            if presigned_url:
-                summary['direct_download_url'] = presigned_url
         else:
             # S3 storage failed - return truncated result directly
             print("S3 storage failed, returning truncated result")
@@ -222,7 +218,7 @@ def get_date_range(orders: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 def store_result_in_s3(result: Dict[str, Any], execution_arn: str = None) -> str:
     """
-    Store large result in S3 and return the S3 key
+    Store large result in S3 and return the S3 key with presigned URL
     """
     try:
         s3_client = boto3.client('s3')
@@ -233,17 +229,22 @@ def store_result_in_s3(result: Dict[str, Any], execution_arn: str = None) -> str
         execution_id = execution_arn.split(':')[-1] if execution_arn else 'unknown'
         s3_key = f"results/{timestamp}_{execution_id}.json"
         
+        # Prepare CLEAN JSON with only orders
+        clean_result = {
+            'orders': result.get('orders', [])
+        }
+        
         # Upload to S3 with public read permissions
         s3_client.put_object(
             Bucket=bucket_name,
             Key=s3_key,
-            Body=json.dumps(result, indent=2, ensure_ascii=False),
+            Body=json.dumps(clean_result, indent=2, ensure_ascii=False),
             ContentType='application/json',
             ServerSideEncryption='AES256',
             ACL='bucket-owner-full-control'
         )
         
-        print(f"Stored result in S3: s3://{bucket_name}/{s3_key}")
+        print(f"Stored clean result in S3: s3://{bucket_name}/{s3_key}")
         
         # Generate presigned URL for direct download
         try:

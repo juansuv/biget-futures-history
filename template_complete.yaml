@@ -141,7 +141,7 @@ Resources:
       FunctionName: bitget-result-collector
       CodeUri: src/lambdas/result_collector/
       Handler: handler.lambda_handler
-      MemorySize: 900
+      MemorySize: 2000
       Environment:
         Variables:
           RESULTS_BUCKET: !Ref ResultsBucket
@@ -210,7 +210,7 @@ Resources:
             "DiscoverSymbolsInParallel": {
               "Type": "Map",
               "ItemsPath": "$.time_ranges.Payload.time_windows",
-              "MaxConcurrency": 8,
+              "MaxConcurrency": 20,
               "Iterator": {
                 "StartAt": "SearchSymbolsInWindow",
                 "States": {
@@ -233,9 +233,7 @@ Resources:
               "Resource": "arn:aws:states:::lambda:invoke",
               "Parameters": {
                 "FunctionName": "${SymbolUnifierFunction.Arn}",
-                "Payload": {
-                  "window_results.$": "$.window_results"
-                }
+                "Payload.$": "$"
               },
               "ResultPath": "$.unified_symbols",
               "Next": "ProcessSymbolsInParallel"
@@ -243,7 +241,7 @@ Resources:
             "ProcessSymbolsInParallel": {
               "Type": "Map",
               "ItemsPath": "$.unified_symbols.Payload.symbols",
-              "MaxConcurrency": 5,
+              "MaxConcurrency": 20,
               "Iterator": {
                 "StartAt": "ProcessSingleSymbol",
                 "States": {
@@ -281,21 +279,6 @@ Resources:
           }
         }
 
-  # Coordinator Lambda Function
-  CoordinatorFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      FunctionName: bitget-coordinator
-      CodeUri: src/lambdas/coordinator/
-      Handler: handler.lambda_handler
-      MemorySize: 512
-      Environment:
-        Variables:
-          STEP_FUNCTION_ARN: !Ref OrderExtractionStateMachine
-          FASTAPI_ROOT_PATH: /Prod
-      Policies:
-        - StepFunctionsExecutionPolicy:
-            StateMachineName: !GetAtt OrderExtractionStateMachine.Name
 
   # FastAPI Lambda Function with API Gateway
   FastApiFunction:
@@ -313,8 +296,6 @@ Resources:
       Policies:
         - StepFunctionsExecutionPolicy:
             StateMachineName: !GetAtt OrderExtractionStateMachine.Name
-        - LambdaInvokePolicy:
-            FunctionName: !Ref CoordinatorFunction
         - LambdaInvokePolicy:
             FunctionName: !Ref SymbolProcessorFunction
         - Version: '2012-10-17'
@@ -391,10 +372,6 @@ Outputs:
   StepFunctionArn:
     Description: 'Step Function State Machine ARN'
     Value: !Ref OrderExtractionStateMachine
-  
-  CoordinatorFunctionArn:
-    Description: 'Coordinator Lambda Function ARN'
-    Value: !GetAtt CoordinatorFunction.Arn
   
   SymbolProcessorFunctionArn:
     Description: 'Symbol Processor Lambda Function ARN'

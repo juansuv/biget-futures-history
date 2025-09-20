@@ -56,23 +56,20 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                     'statusCode': 200,
                     'symbol': symbol,
                     'orders_count': len(orders),
-                    'orders': [],  # Empty to avoid data limit
                     's3_key': s3_key,
-                    's3_bucket': os.environ.get('RESULTS_BUCKET'),
-                    'stored_in_s3': True,
-                    'processed_at': int(time.time() * 1000)
+                    'stored_in_s3': True
                 }
             else:
                 # S3 failed, return small subset to avoid data limit
                 limited_orders = orders[:3] if len(orders) > 3 else orders
+                print(f"S3 storage failed for {symbol}, returning limited orders")
                 return {
                     'statusCode': 200,
                     'symbol': symbol,
                     'orders_count': len(orders),
-                    'orders': limited_orders,
+                    'orders': limited_orders[:1],  # Only 1 order max
                     'stored_in_s3': False,
-                    's3_fallback_failed': True,
-                    'processed_at': int(time.time() * 1000)
+                    's3_fallback_failed': True
                 }
         else:
             # No orders found
@@ -80,19 +77,15 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 'statusCode': 200,
                 'symbol': symbol,
                 'orders_count': 0,
-                'orders': [],
-                'stored_in_s3': False,
-                'processed_at': int(time.time() * 1000)
+                'stored_in_s3': False
             }
         
     except Exception as e:
         return {
             'statusCode': 500,
             'symbol': event.get('symbol', 'unknown'),
-            'error': str(e),
-            'orders': [],
-            'orders_count': 0,
-            'processed_at': int(time.time() * 1000)
+            'error': str(e)[:100],  # Truncate error message
+            'orders_count': 0
         }
 
 def get_all_orders_for_symbol(client: Client, symbol: str) -> List[Dict[str, Any]]:

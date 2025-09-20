@@ -16,7 +16,38 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         # Extraer resultados de todas las ventanas
         window_results = event.get('window_results', [])
         if not window_results:
-            window_results = event  # Fallback si viene directo del map
+            # Fallback: buscar en toda la estructura del evento
+            print(f"No window_results found, full event keys: {list(event.keys())}")
+            window_results = event
+        
+        # Debug: mostrar estructura de window_results
+        print(f"window_results type: {type(window_results)}")
+        if isinstance(window_results, list) and len(window_results) > 0:
+            print(f"First window_result sample: {window_results[0]}")
+            # Ya tenemos la lista, continuar con el procesamiento
+        elif isinstance(window_results, dict):
+            print(f"window_results as dict keys: {list(window_results.keys())}")
+            # Si window_results es dict, extraer la lista real
+            if 'window_results' in window_results:
+                window_results = window_results['window_results']
+                print(f"Extracted window_results, new type: {type(window_results)}")
+            elif isinstance(window_results, dict) and len(window_results) == 1:
+                # Podría ser que toda la estructura esté en una clave
+                for key, value in window_results.items():
+                    if isinstance(value, list):
+                        print(f"Found list in key '{key}', using it as window_results")
+                        window_results = value
+                        break
+        
+        # Verificar que window_results sea una lista después de todo el procesamiento
+        if not isinstance(window_results, list):
+            print(f"ERROR: window_results is not a list after processing: {type(window_results)}")
+            return {
+                'statusCode': 500,
+                'error': f'Invalid window_results format: {type(window_results)}',
+                'message': 'Error unifying symbols',
+                'symbols': []
+            }
         
         print(f"Processing results from {len(window_results)} time windows")
         
@@ -30,17 +61,27 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         for result in window_results:
             try:
                 if isinstance(result, dict):
-                    window_id = result.get('window_id', 'unknown')
-                    status_code = result.get('statusCode', 500)
-                    symbols = result.get('symbols', [])
-                    symbols_count = result.get('symbols_count', 0)
+                    # Extraer payload si viene del Step Function Map
+                    if 'Payload' in result:
+                        payload = result['Payload']
+                        print(f"Extracting from Payload: {type(payload)}")
+                    else:
+                        payload = result
+                        print(f"Using result directly: {type(payload)}")
+                    
+                    window_id = payload.get('window_id', 'unknown')
+                    status_code = payload.get('statusCode', 500)
+                    symbols = payload.get('symbols', [])
+                    symbols_count = payload.get('symbols_count', 0)
+                    
+                    print(f"Processing window {window_id}: status={status_code}, symbols_count={symbols_count}")
                     
                     window_stat = {
                         'window_id': window_id,
                         'status': 'success' if status_code == 200 else 'failed',
                         'symbols_count': symbols_count,
-                        'start_date': result.get('start_date'),
-                        'end_date': result.get('end_date')
+                        'start_date': payload.get('start_date'),
+                        'end_date': payload.get('end_date')
                     }
                     window_stats.append(window_stat)
                     
@@ -53,7 +94,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                         print(f"Window {window_id}: {symbols_count} symbols")
                     else:
                         failed_windows += 1
-                        print(f"Window {window_id}: Failed with error: {result.get('error', 'Unknown')}")
+                        print(f"Window {window_id}: Failed with error: {payload.get('error', 'Unknown')}")
                         
             except Exception as e:
                 failed_windows += 1

@@ -9,7 +9,6 @@ from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
 from pydantic import BaseModel
 from mangum import Mangum
-from src.lambdas.coordinator.handler import lambda_handler as coordinator_handler
 
 ROOT_PATH = os.environ.get("FASTAPI_ROOT_PATH", "")
 STAGE_PREFIX = ROOT_PATH.rstrip("/") if ROOT_PATH else ""
@@ -211,53 +210,31 @@ async def extract_orders(request_data: OrderExtractionRequest, request: Request)
     3. Devuelve el ARN de ejecución para seguimiento
     """
     try:
-        # if not STEP_FUNCTION_ARN:
-        #     raise HTTPException(
-        #         status_code=500, detail="Step Function ARN not configured"
-        #     )
+        if not STEP_FUNCTION_ARN:
+            raise HTTPException(
+                status_code=500, detail="Step Function ARN not configured"
+            )
 
-        # Si no se proporcionan símbolos, usar test_mode por defecto para evitar timeouts
-        symbols = request_data.symbols
-        if not symbols:
-            if request_data.test_mode:
-                # Usar símbolos de test rápidos
-                result = coordinator_handler({}, None)
+        # Start Step Function directly - symbol discovery is now handled internally
+        input_data = {
+            "test_mode": request_data.test_mode,
+            "mode": "test" if request_data.test_mode else "production"
+        }
+        
+        # Only include symbols if provided (for backwards compatibility)
+        if request_data.symbols:
+            input_data["symbols"] = request_data.symbols
+            symbols_count = len(request_data.symbols)
+        else:
+            symbols_count = "TBD (will be discovered by Step Function)"
 
-                symbols = ["BTCUSDT", "ETHUSDT", "ADAUSDT", "DOGEUSDT", "SOLUSDT"]
-                print(f"Using test mode symbols: {symbols}")
-            else:
-                # Obtener del coordinador (puede tardar varios minutos)
-                print("Calling coordinator to get all symbols (this may take several minutes)...")
-                try:
-                    coordinator_response = lambda_client.invoke(
-                        FunctionName="bitget-coordinator",
-                        Payload=json.dumps({"test_mode": False}),
-                    )
-
-                    coordinator_result = json.loads(coordinator_response["Payload"].read())
-                    if coordinator_result.get("statusCode") == 200:
-                        body = json.loads(coordinator_result["body"])
-                        symbols = body.get("symbols", [])
-                        print(f"Coordinator returned {len(symbols)} symbols")
-                    else:
-                        raise Exception("Coordinator failed")
-
-                except Exception as e:
-                    print(f"Coordinator failed: {e}, using fallback symbols")
-                    # Usar símbolos por defecto si falla el coordinador
-                    symbols = ["BTCUSDT", "ETHUSDT", "ADAUSDT"]
-
-        # Ejecutar Step Function
+        # Execute Step Function
         execution_name = f"bitget-extraction-{int(time.time())}"
 
         response = stepfunctions.start_execution(
             stateMachineArn=STEP_FUNCTION_ARN,
             name=execution_name,
-            input=json.dumps(
-                {
-                    "symbols": symbols,
-                }
-            ),
+            input=json.dumps(input_data),
         )
 
         # Crear link de descarga con URLs completas
@@ -265,17 +242,26 @@ async def extract_orders(request_data: OrderExtractionRequest, request: Request)
         download_link = full_url(request, f"download-result/{execution_arn_encoded}")
         status_link = full_url(request, f"execution-status/{execution_arn_encoded}")
 
+        message = f"Step Function execution started in {'test' if request_data.test_mode else 'production'} mode. "
+        if request_data.test_mode:
+            message += "Using predefined symbols. "
+        else:
+            message += "Symbol discovery will be performed automatically. "
+        message += "Wait for completion, then use download_link."
+        
         return OrderExtractionResponse(
             status="success",
-            message=f"Step Function execution started for {len(symbols)} symbols. Wait for completion, then use download_link.",
+            message=message,
             data={
-                "symbols": symbols,
+                "symbols": request_data.symbols or [],
                 "execution_name": execution_name,
-                "symbols_count": len(symbols),
+                "symbols_count": symbols_count,
+                "test_mode": request_data.test_mode,
                 "download_link": download_link,
                 "status_link": status_link,
                 "instructions": "1. Check status_link until status='SUCCEEDED', 2. Then use download_link to get JSON file",
-                "execution_arn_encoded": execution_arn_encoded
+                "execution_arn_encoded": execution_arn_encoded,
+                "note": "Symbol discovery handled by Step Function" if not request_data.test_mode else "Test mode with predefined symbols"
             },
             execution_arn=response["executionArn"],
         )
@@ -317,27 +303,17 @@ async def extract_single_symbol(request: SymbolExtractionRequest):
 @app.get("/get-symbols")
 async def get_symbols():
     """
-    Obtener lista de símbolos disponibles desde Bitget
+    Obtener lista de símbolos disponibles (predefinidos para testing)
     """
-    try:
-        response = lambda_client.invoke(
-            FunctionName="bitget-coordinator", Payload=json.dumps({"test_mode": True})
-        )
-
-        result = json.loads(response["Payload"].read())
-
-        if result.get("statusCode") == 200:
-            body = json.loads(result["body"])
-            return {
-                "status": "success",
-                "symbols": body.get("symbols", []),
-                "count": len(body.get("symbols", [])),
-            }
-        else:
-            raise HTTPException(status_code=500, detail="Failed to get symbols")
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    # Return predefined test symbols since symbol discovery is now handled by Step Function
+    test_symbols = ["BTCUSDT", "ETHUSDT", "ADAUSDT", "DOGEUSDT", "SOLUSDT"]
+    
+    return {
+        "status": "success",
+        "symbols": test_symbols,
+        "count": len(test_symbols),
+        "note": "These are test symbols. Full symbol discovery happens automatically in Step Function."
+    }
 
 
 @app.get("/execution-status/{execution_arn_path:path}")
