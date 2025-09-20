@@ -11,11 +11,17 @@ def lambda_handler(event: Dict[str, Any], _) -> Dict[str, Any]:
     Result Collector Lambda: Collects and sorts orders from S3
     """
     try:
+        print(f"📥 Result Collector started with event: {json.dumps(event, default=str)}")
         # Collect all orders from S3 symbol_results folder
         combined_result = collect_results_from_s3()
         
         # Store sorted orders in S3 
-        s3_result = store_result_in_s3(combined_result.get('orders', []), execution_arn=event.get('execution_arn'))
+        execution_name = event.get('execution_name') or event.get('execution_arn', 'unknown')
+        print(f"🔑 Execution name: {execution_name}")
+        print(f"📊 Total orders to store: {len(combined_result.get('orders', []))}")
+        
+        s3_result = store_result_in_s3(combined_result.get('orders', []), execution_name=execution_name)
+        print(f"💾 S3 result: {s3_result}")
         
         # Prepare response with URLs
         response_data = {
@@ -45,7 +51,7 @@ def lambda_handler(event: Dict[str, Any], _) -> Dict[str, Any]:
         }
 
 
-def store_result_in_s3(all_orders: List[Dict[str, Any]], execution_arn: str = None) -> str:
+def store_result_in_s3(all_orders: List[Dict[str, Any]], execution_name: str = None) -> str:
     """
     Store sorted orders in S3 and return the S3 key with presigned URL
     """
@@ -53,34 +59,85 @@ def store_result_in_s3(all_orders: List[Dict[str, Any]], execution_arn: str = No
         s3_client = boto3.client('s3')
         bucket_name = os.environ.get('RESULTS_BUCKET')
         
-        # Generate unique key
+        if not bucket_name:
+            print("❌ RESULTS_BUCKET environment variable not set in store_result_in_s3")
+            return None
+        
+        # Generate unique key first
         timestamp = int(time.time())
-        execution_id = execution_arn.split(':')[-1] if execution_arn else 'unknown'
+        execution_id = execution_name if execution_name else 'unknown'
         s3_key = f"results/{timestamp}_{execution_id}.json"
+        
+        print(f"🪣 Using bucket: {bucket_name}")
+        print(f"📋 Storing {len(all_orders)} orders")
+        print(f"🔑 S3 key will be: {s3_key}")
+        
+        # Test bucket access first
+        try:
+            s3_client.head_bucket(Bucket=bucket_name)
+            print(f"✅ Bucket {bucket_name} is accessible")
+        except Exception as e:
+            print(f"❌ Cannot access bucket {bucket_name}: {e}")
+            return None
+        
+        # Always create a result file (even if empty) for debugging
+        if len(all_orders) == 0:
+            print("⚠️ No orders found, creating test file for debugging")
+            test_orders = [{
+                "test": True,
+                "message": "No orders found in symbol_results folder",
+                "timestamp": timestamp,
+                "execution_name": execution_name,
+                "debug_info": "Result Collector executed successfully but found no orders"
+            }]
+            print("🔧 Using test orders for S3 upload")
+        else:
+            test_orders = all_orders
+            print(f"✅ Using {len(all_orders)} real orders for S3 upload")
         
         # Prepare CLEAN JSON with only sorted orders (ultra-fast binary encoding)
         clean_result = {
-            'orders': all_orders
+            'orders': test_orders
         }
         
         # Use orjson for ultra-fast JSON encoding
         json_body = orjson.dumps(clean_result, option=orjson.OPT_INDENT_2)
         
         # Upload to S3 with public read permissions
-        s3_client.put_object(
-            Bucket=bucket_name,
-            Key=s3_key,
-            Body=json_body,
-            ContentType='application/json',
-            ServerSideEncryption='AES256',
-            ACL='public-read'
-        )
+        print(f"📤 Starting S3 upload to: s3://{bucket_name}/{s3_key}")
+        print(f"📦 JSON body size: {len(json_body)} bytes")
+        
+        try:
+            put_response = s3_client.put_object(
+                Bucket=bucket_name,
+                Key=s3_key,
+                Body=json_body,
+                ContentType='application/json',
+                ServerSideEncryption='AES256'
+            )
+            status_code = put_response.get('ResponseMetadata', {}).get('HTTPStatusCode')
+            print(f"✅ S3 PUT successful! HTTP Status: {status_code}")
+            print(f"✅ S3 ETag: {put_response.get('ETag', 'N/A')}")
+        except Exception as upload_error:
+            print(f"❌ S3 PUT FAILED: {upload_error}")
+            print(f"❌ Error type: {type(upload_error)}")
+            import traceback
+            print(f"❌ Upload traceback: {traceback.format_exc()}")
+            return None
         
         # Generate public URL (direct access)
         public_url = f"https://{bucket_name}.s3.amazonaws.com/{s3_key}"
         
-        print(f"Stored clean result in S3: s3://{bucket_name}/{s3_key}")
-        print(f"Public URL: {public_url}")
+        print(f"✅ Stored clean result in S3: s3://{bucket_name}/{s3_key}")
+        print(f"🌐 Public URL: {public_url}")
+        print(f"📦 File size: {len(json_body)} bytes")
+        
+        # Verify the file was actually stored
+        try:
+            head_response = s3_client.head_object(Bucket=bucket_name, Key=s3_key)
+            print(f"✅ File verification successful. Size: {head_response.get('ContentLength')} bytes")
+        except Exception as e:
+            print(f"❌ File verification failed: {e}")
         
         # Also generate presigned URL as backup
         try:
@@ -103,7 +160,10 @@ def store_result_in_s3(all_orders: List[Dict[str, Any]], execution_arn: str = No
             }
         
     except Exception as e:
-        print(f"Error storing result in S3: {e}")
+        print(f"❌ Error storing result in S3: {e}")
+        print(f"❌ Error type: {type(e)}")
+        import traceback
+        print(f"❌ Traceback: {traceback.format_exc()}")
         # Fallback: return None and include orders in response (truncated)
         return None
 
@@ -130,8 +190,12 @@ def collect_results_from_s3() -> Dict[str, Any]:
         all_orders = []
         
         if 'Contents' in response:
+            all_files = [obj['Key'] for obj in response['Contents']]
             json_files = [obj['Key'] for obj in response['Contents'] if obj['Key'].endswith('.json')]
-            print(f"Found {len(json_files)} JSON files in symbol_results folder")
+            print(f"📁 Found {len(response['Contents'])} total files in symbol_results folder")
+            print(f"📄 Found {len(json_files)} JSON files in symbol_results folder")
+            print(f"📋 All files: {all_files[:10]}...")  # Show first 10 files
+            print(f"📋 JSON files: {json_files[:5]}...")  # Show first 5 JSON files
             
             if json_files:
                 # Process files in parallel with optimized thread count
@@ -170,7 +234,10 @@ def collect_results_from_s3() -> Dict[str, Any]:
         
         # Clean up symbol_results folder after processing
         if json_files:
+            print(f"🧹 Starting cleanup of {len(json_files)} files AFTER processing")
             cleanup_symbol_results(bucket_name, json_files)
+        else:
+            print("🧹 No files to cleanup")
         
         return {
             'message': 'Orders successfully collected from S3 with parallel processing',
@@ -218,9 +285,14 @@ def safe_ctime_parse(order: Dict[str, Any]) -> int:
 def cleanup_symbol_results(bucket_name: str, json_files: List[str]) -> None:
     """
     Clean up symbol_results folder by deleting all processed files
+    ONLY deletes files from symbol_results/ folder, NOT results/ folder
     """
     try:
         s3_client = boto3.client('s3')
+        
+        print(f"🧹 Starting cleanup of symbol_results/ folder only")
+        print(f"🧹 Files to delete: {json_files[:5]}...")  # Show first 5 files
+        print(f"🧹 Will delete {len(json_files)} files from symbol_results/ (NOT results/)")
         
         # Delete files in batches (S3 delete_objects supports up to 1000 objects)
         batch_size = 1000
@@ -229,10 +301,24 @@ def cleanup_symbol_results(bucket_name: str, json_files: List[str]) -> None:
         for i in range(0, len(json_files), batch_size):
             batch = json_files[i:i + batch_size]
             
-            # Prepare delete request
+            # Safety check: only delete files from symbol_results/ folder
+            safe_batch = []
+            for key in batch:
+                if key.startswith('symbol_results/'):
+                    safe_batch.append(key)
+                else:
+                    print(f"⚠️ SKIPPING file not in symbol_results/: {key}")
+            
+            if not safe_batch:
+                print(f"⚠️ No safe files to delete in this batch")
+                continue
+            
+            # Prepare delete request with safety-checked files
             delete_objects = {
-                'Objects': [{'Key': key} for key in batch]
+                'Objects': [{'Key': key} for key in safe_batch]
             }
+            
+            print(f"🗑️ Deleting batch of {len(safe_batch)} files from symbol_results/")
             
             # Delete batch
             try:
@@ -247,7 +333,8 @@ def cleanup_symbol_results(bucket_name: str, json_files: List[str]) -> None:
             except Exception as e:
                 print(f"❌ Error deleting batch: {e}")
         
-        print(f"✅ Cleanup completed: {deleted_count}/{len(json_files)} files deleted from symbol_results")
+        print(f"✅ Cleanup completed: {deleted_count}/{len(json_files)} files deleted from symbol_results/ folder")
+        print(f"📁 results/ folder remains untouched with final results")
         
     except Exception as e:
         print(f"❌ Error during cleanup: {e}")

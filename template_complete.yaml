@@ -190,7 +190,7 @@ Resources:
                   - !GetAtt SymbolProcessorFunction.Arn
                   - !GetAtt ResultCollectorFunction.Arn
 
-  # Step Function State Machine
+  # Step Function State Machine (Standard Workflow)
   OrderExtractionStateMachine:
     Type: AWS::StepFunctions::StateMachine
     Properties:
@@ -198,7 +198,7 @@ Resources:
       RoleArn: !GetAtt StepFunctionRole.Arn
       DefinitionString: !Sub |
         {
-          "Comment": "Complete Bitget order extraction pipeline with parallel symbol discovery",
+          "Comment": "Bitget order extraction with parallel processing",
           "StartAt": "MapTimeRanges",
           "States": {
             "MapTimeRanges": {
@@ -271,6 +271,7 @@ Resources:
               "Parameters": {
                 "FunctionName": "${ResultCollectorFunction.Arn}",
                 "Payload": {
+                  "execution_name.$": "$$.Execution.Name",
                   "execution_arn.$": "$$.Execution.Name",
                   "collect_from_s3": true
                 }
@@ -305,7 +306,9 @@ Resources:
               Action:
                 - stepfunctions:DescribeExecution
                 - stepfunctions:ListExecutions
-              Resource: '*'
+              Resource: 
+                - !Ref OrderExtractionStateMachine
+                - !Sub '${OrderExtractionStateMachine}:*'
             - Effect: Allow
               Action:
                 - s3:GetObject

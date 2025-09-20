@@ -10,10 +10,15 @@ def lambda_handler(event, _):
     Symbol Processor Lambda: Processes a single symbol to extract all its orders
     """
     try:
+        print(f"🔄 Symbol Processor started with event: {event}")
+        
         # Extract symbol from event
         symbol = event.get('symbol')
         if not symbol:
+            print("❌ No symbol provided in event")
             return {}
+        
+        print(f"📈 Processing symbol: {symbol}")
         
         # Initialize Bitget client using environment variables
         api_key = os.environ.get('BITGET_API_KEY')
@@ -21,7 +26,10 @@ def lambda_handler(event, _):
         passphrase = os.environ.get('BITGET_PASSPHRASE')
         
         if not all([api_key, secret_key, passphrase]):
+            print("❌ Missing Bitget API credentials")
             return {}
+        
+        print("✅ Bitget credentials found, initializing client")
         
         client = Client(
             api_key=api_key,
@@ -30,15 +38,20 @@ def lambda_handler(event, _):
         )
         
         # Extract all orders for this symbol
+        print(f"🔍 Extracting orders for {symbol}")
         orders = get_all_orders_for_symbol(client, symbol)
+        print(f"📊 Found {len(orders)} orders for {symbol}")
         
         # Store results in S3 if there are any orders
         if orders:
             store_orders_in_s3(symbol, orders)
+        else:
+            print(f"⚠️ No orders found for {symbol}, not storing in S3")
         
         return {}
         
-    except Exception:
+    except Exception as e:
+        print(f"❌ Symbol Processor error: {e}")
         return {}
 
 def get_all_orders_for_symbol(client: Client, symbol: str) -> List[Dict[str, Any]]:
@@ -132,6 +145,9 @@ def store_orders_in_s3(symbol: str, orders: List[Dict[str, Any]]):
         bucket_name = os.environ.get('RESULTS_BUCKET')
         s3_key = f"symbol_results/{symbol}_{int(time.time())}.json"
         
+        print(f"💾 Storing {len(orders)} orders for symbol {symbol}")
+        print(f"📁 S3 key: {s3_key}")
+        
         # Use orjson for ultra-fast binary JSON encoding (up to 5x faster)
         json_body = orjson.dumps({'orders': orders})
         
@@ -141,5 +157,6 @@ def store_orders_in_s3(symbol: str, orders: List[Dict[str, Any]]):
             Body=json_body,
             ContentType='application/json'
         )
-    except Exception:
-        pass
+        print(f"✅ Successfully stored {symbol} orders in S3")
+    except Exception as e:
+        print(f"❌ Error storing {symbol} orders in S3: {e}")

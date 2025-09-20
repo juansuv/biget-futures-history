@@ -309,6 +309,7 @@ if [ $? -eq 0 ]; then
     echo "📋 Available endpoints:"
     echo "• 📖 Documentation: ${API_URL}docs"
     echo "• ⚡ Extract Orders: ${API_URL}extract-orders"
+    echo "• 📊 Check Status: ${API_URL}execution-status/{execution_name}"
     echo ""
     echo "🧪 Quick test command:"
     echo "# Extract all orders (ultra-fast)"
