@@ -23,9 +23,6 @@ s3_client = boto3.client("s3")
 STEP_FUNCTION_ARN = os.environ.get("STEP_FUNCTION_ARN")
 RESULTS_BUCKET = os.environ.get("RESULTS_BUCKET")
 
-
-
-
 @app.post("/extract-orders")
 async def extract_orders(request_data: OrderExtractionRequest):
     """
@@ -56,9 +53,8 @@ async def extract_orders(request_data: OrderExtractionRequest):
             "status": "started",
             "execution_name": execution_name,
             "message": "Step Function started successfully. Results will be available at the URL below when processing completes.",
-            "estimated_completion_time": "5-10 minutes",
-            "result_url": expected_public_url,
-            "check_status_url": f"https://console.aws.amazon.com/states/home?region=us-east-1#/executions/details/{STEP_FUNCTION_ARN.replace(':stateMachine:', ':execution:')}:{execution_name}"
+            "estimated_completion_time": "1-2 minutes",
+            "result_url": expected_public_url
         }
 
     except Exception as e:
@@ -68,7 +64,7 @@ async def extract_orders(request_data: OrderExtractionRequest):
 @app.get("/execution-status/{execution_name}")
 async def get_execution_status(execution_name: str):
     """
-    Check execution status and get result URL when completed
+    Check execution status - simple version
     """
     try:
         if not STEP_FUNCTION_ARN:
@@ -77,21 +73,39 @@ async def get_execution_status(execution_name: str):
         # Build execution ARN
         execution_arn = STEP_FUNCTION_ARN.replace(':stateMachine:', ':execution:') + f":{execution_name}"
         
-        # Check execution status
-        response = stepfunctions.describe_execution(executionArn=execution_arn)
+        # Check execution status with error handling
+        try:
+            response = stepfunctions.describe_execution(executionArn=execution_arn)
+        except:
+            return {
+                "execution_name": execution_name,
+                "status": "not_found",
+                "message": "Execution not found or still starting"
+            }
+        
         status = response.get('status', 'UNKNOWN')
         
         result = {
             "execution_name": execution_name,
-            "status": status.lower(),
-            "start_date": response.get('startDate').isoformat() if response.get('startDate') else None
+            "status": status.lower()
         }
         
+        # Add dates if available
+        if response.get('startDate'):
+            result["start_date"] = response.get('startDate').isoformat()
+        
+        if response.get('stopDate'):
+            result["stop_date"] = response.get('stopDate').isoformat()
+            # Add duration
+            if response.get('startDate'):
+                duration = (response.get('stopDate') - response.get('startDate')).total_seconds()
+                result["duration_seconds"] = f"{int(duration)} seconds"
+        
+        # Add status-specific info
         if status == 'SUCCEEDED':
             # Look for the result file in S3
             try:
-                # List files in results folder for this execution
-                response = s3_client.list_objects_v2(
+                response_s3 = s3_client.list_objects_v2(
                     Bucket=RESULTS_BUCKET,
                     Prefix=f"results/",
                     MaxKeys=1000
@@ -99,8 +113,8 @@ async def get_execution_status(execution_name: str):
                 
                 # Find the file that matches this execution
                 result_file = None
-                if 'Contents' in response:
-                    for obj in response['Contents']:
+                if 'Contents' in response_s3:
+                    for obj in response_s3['Contents']:
                         if execution_name in obj['Key'] and obj['Key'].endswith('.json'):
                             result_file = obj['Key']
                             break
@@ -110,21 +124,26 @@ async def get_execution_status(execution_name: str):
                     result.update({
                         "result_available": True,
                         "result_url": public_url,
-                        "s3_key": result_file
+                        #"s3_key": result_file,
+                        "message": "Execution completed successfully"
                     })
                 else:
-                    result["result_available"] = False
-                    result["message"] = "Execution completed but result file not found"
+                    result.update({
+                        "result_available": False,
+                        "message": "Execution completed but result file not found"
+                    })
                     
             except Exception as e:
-                result["result_available"] = False
-                result["error"] = f"Error checking S3: {str(e)}"
-                
-        elif status == 'FAILED':
-            result["error"] = response.get('error', 'Unknown error')
-            result["cause"] = response.get('cause', 'Unknown cause')
+                result.update({
+                    "result_available": False,
+                    "message": f"Execution completed but error checking S3: {str(e)}"
+                })
         elif status == 'RUNNING':
+            result["result_available"] = False
             result["message"] = "Execution in progress..."
+        elif status == 'FAILED':
+            result["result_available"] = False
+            result["message"] = "Execution failed"
         
         return result
         

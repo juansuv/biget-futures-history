@@ -290,7 +290,7 @@ jq '.orders | length' result.json
 |---------|----------------|--------------|
 | API Response Time | <200ms | ~150ms |
 | Symbol Processing | <30s/symbol | ~20s/symbol |
-| Total Extraction | <15 minutes | ~10 minutes |
+| Total Extraction | <1 minutes | ~50 seconds |
 | Memory Efficiency | >80% utilización | ~85% |
 | Error Rate | <1% | ~0.5% |
 
