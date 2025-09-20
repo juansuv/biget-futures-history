@@ -1,6 +1,7 @@
 import json
 import time
 import os
+import random
 from typing import Dict, Any, List
 from pybitget import Client
 
@@ -9,6 +10,11 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     Symbol Processor Lambda: Processes a single symbol to extract all its orders
     """
     print("Symbol processor lambda invoked")
+    
+    # Add random delay to avoid thundering herd
+    initial_delay = random.uniform(0.1, 2.0)
+    time.sleep(initial_delay)
+    
     try:
         print(f"Processing event: {event}")
         # Extract symbol from event
@@ -75,16 +81,39 @@ def get_all_orders_for_symbol(client: Client, symbol: str) -> List[Dict[str, Any
         page_count = 0
         
         while page_count < max_pages:
+            retry_count = 0
+            max_retries = 3
+            
+            while retry_count < max_retries:
+                try:
+                    # Get order history for this symbol
+                    response = client.mix_get_history_orders(
+                        symbol=symbol,
+                        startTime=str(start_time),
+                        endTime=str(end_time),
+                        pageSize=str(page_size),
+                        lastEndId=last_end_id,
+                        isPre=False
+                    )
+                    break  # Success, exit retry loop
+                    
+                except Exception as e:
+                    error_str = str(e).lower()
+                    if '429' in error_str or 'rate' in error_str or 'limit' in error_str:
+                        retry_count += 1
+                        print(f"Rate limit hit for {symbol}, retry {retry_count}/{max_retries}")
+                        if retry_count < max_retries:
+                            time.sleep(2 ** retry_count)  # Exponential backoff
+                            continue
+                        else:
+                            print(f"Max retries reached for {symbol}")
+                            return all_orders
+                    else:
+                        # Non-rate limit error, break immediately
+                        print(f"Non-rate limit error for {symbol}: {e}")
+                        return all_orders
+            
             try:
-                # Get order history for this symbol
-                response = client.mix_get_history_orders(
-                    symbol=symbol,
-                    startTime=str(start_time),
-                    endTime=str(end_time),
-                    pageSize=str(page_size),
-                    lastEndId=last_end_id,
-                    isPre=False
-                )
                 
                 if not response or 'data' not in response:
                     break
@@ -112,8 +141,8 @@ def get_all_orders_for_symbol(client: Client, symbol: str) -> List[Dict[str, Any
                 else:
                     break
                     
-                # Small delay to respect rate limits
-                time.sleep(0.1)
+                # Increased delay to respect rate limits
+                time.sleep(0.5)
                 
             except Exception as e:
                 print(f"Error fetching page {page_count} for symbol {symbol}: {e}")

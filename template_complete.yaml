@@ -25,7 +25,7 @@ Parameters:
 
 Globals:
   Function:
-    Timeout: 300
+    Timeout: 500
     Runtime: python3.9
     Environment:
       Variables:
@@ -41,7 +41,7 @@ Resources:
       FunctionName: bitget-symbol-processor
       CodeUri: src/lambdas/symbol_processor/
       Handler: handler.lambda_handler
-      MemorySize: 512
+      MemorySize: 900
 
   # Result Collector Lambda Function  
   ResultCollectorFunction:
@@ -50,7 +50,7 @@ Resources:
       FunctionName: bitget-result-collector
       CodeUri: src/lambdas/result_collector/
       Handler: handler.lambda_handler
-      MemorySize: 256
+      MemorySize: 900
 
   # Step Function Role
   StepFunctionRole:
@@ -89,7 +89,7 @@ Resources:
             "ProcessSymbolsInParallel": {
               "Type": "Map",
               "ItemsPath": "$.symbols",
-              "MaxConcurrency": 50,
+              "MaxConcurrency": 5,
               "Iterator": {
                 "StartAt": "ProcessSingleSymbol",
                 "States": {

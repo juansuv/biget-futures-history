@@ -93,6 +93,17 @@ async def root():
     
     return HTMLResponse(content=html_content)
 
+@app.get("/openapi.json", include_in_schema=False)
+async def get_openapi_json():
+    """OpenAPI JSON schema endpoint"""
+    from fastapi.openapi.utils import get_openapi
+    return get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes
+    )
+
 @app.get("/docs", include_in_schema=False)
 async def custom_swagger_ui():
     """Swagger UI con ruta compatible con API Gateway stages"""
