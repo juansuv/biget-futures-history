@@ -3,7 +3,7 @@ import time
 import boto3
 from typing import List, Dict, Any
 from pybitget import Client
-from config import BitgetConfig
+from .config import BitgetConfig
 
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """

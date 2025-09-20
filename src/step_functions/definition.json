@@ -15,8 +15,7 @@
             "Parameters": {
               "FunctionName": "${SymbolProcessorLambdaArn}",
               "Payload": {
-                "symbol.$": "$",
-                "timestamp.$": "$.timestamp"
+                "symbol.$": "$"
               }
             },
             "ResultPath": "$.result",

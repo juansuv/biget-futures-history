@@ -1,3 +1,61 @@
-.aws-sam
-.aws-sam/build
-.claude
+# AWS SAM
+.aws-sam/
+samconfig.toml
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+*.dist-info/
+venv/
+temp_venv/
+.venv/
+
+# Dependencies installed for deployment (keep source clean)
+src/lambdas/**/aiohttp*
+src/lambdas/**/requests*
+src/lambdas/**/urllib3*
+src/lambdas/**/certifi*
+src/lambdas/**/charset_normalizer*
+src/lambdas/**/idna*
+src/lambdas/**/pybitget*
+src/lambdas/**/websockets*
+src/lambdas/**/loguru*
+src/lambdas/**/boto3*
+src/lambdas/**/botocore*
+src/lambdas/**/jmespath*
+src/lambdas/**/s3transfer*
+src/lambdas/**/python_dateutil*
+src/lambdas/**/six*
+src/lambdas/**/dateutil*
+src/lambdas/**/bin/
+src/api/fastapi*
+src/api/mangum*
+src/api/pydantic*
+src/api/starlette*
+src/api/typing_extensions*
+src/api/annotated_types*
+src/api/pydantic_core*
+src/api/anyio*
+src/api/sniffio*
+src/api/click*
+
+# Test files
+test_results_*.json
+stress_test_results_*.json
+response*.json
+*_deployment.zip
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

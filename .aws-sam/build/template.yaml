@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: Bitget Trading Orders - Lambda Functions Only
+Description: Bitget Trading Orders - Complete API with FastAPI + Lambda + Step Functions
 Parameters:
   BitgetApiKey:
     Type: String
@@ -118,7 +118,55 @@ Resources:
             - Name
     Metadata:
       SamResourceId: CoordinatorFunction
+  FastApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: bitget-fastapi
+      CodeUri: FastApiFunction
+      Handler: main.handler
+      MemorySize: 512
+      Timeout: 30
+      Environment:
+        Variables:
+          STEP_FUNCTION_ARN:
+            Ref: OrderExtractionStateMachine
+      Policies:
+      - StepFunctionsExecutionPolicy:
+          StateMachineName:
+            Fn::GetAtt:
+            - OrderExtractionStateMachine
+            - Name
+      - LambdaInvokePolicy:
+          FunctionName:
+            Ref: CoordinatorFunction
+      - LambdaInvokePolicy:
+          FunctionName:
+            Ref: SymbolProcessorFunction
+      - Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+          - stepfunctions:DescribeExecution
+          - stepfunctions:ListExecutions
+          Resource: '*'
+      Events:
+        ApiGateway:
+          Type: Api
+          Properties:
+            Path: /{proxy+}
+            Method: ANY
+        ApiGatewayRoot:
+          Type: Api
+          Properties:
+            Path: /
+            Method: ANY
+    Metadata:
+      SamResourceId: FastApiFunction
 Outputs:
+  ApiGatewayUrl:
+    Description: API Gateway endpoint URL
+    Value:
+      Fn::Sub: https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/
   StepFunctionArn:
     Description: Step Function State Machine ARN
     Value:
@@ -140,4 +188,10 @@ Outputs:
     Value:
       Fn::GetAtt:
       - ResultCollectorFunction
+      - Arn
+  FastApiFunctionArn:
+    Description: FastAPI Lambda Function ARN
+    Value:
+      Fn::GetAtt:
+      - FastApiFunction
       - Arn
