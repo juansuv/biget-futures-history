@@ -1,17 +1,32 @@
 import json
+import os
 import boto3
 import time
 from typing import Dict, Any, Optional, List
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.responses import HTMLResponse
+from fastapi.openapi.docs import get_swagger_ui_html
 from pydantic import BaseModel
 from mangum import Mangum
+
+ROOT_PATH = os.environ.get("FASTAPI_ROOT_PATH", "")
+STAGE_PREFIX = ROOT_PATH.rstrip('/') if ROOT_PATH else ''
+
+
+def stage_path(path: str = '') -> str:
+    suffix = path.lstrip('/')
+    if STAGE_PREFIX:
+        return f"{STAGE_PREFIX}/{suffix}" if suffix else (STAGE_PREFIX or '/')
+    return f"/{suffix}" if suffix else '/'
 
 # Initialize FastAPI
 app = FastAPI(
     title="Bitget Trading Orders API",
     description="API completa para extraer órdenes de trading de Bitget usando AWS Lambda y Step Functions",
-    version="2.0.0"
+    version="2.0.0",
+    root_path=ROOT_PATH,
+    docs_url=None,
+    redoc_url=None
 )
 
 # Pydantic models
@@ -37,80 +52,37 @@ stepfunctions = boto3.client('stepfunctions')
 lambda_client = boto3.client('lambda')
 
 # Environment variables (set by CloudFormation)
-import os
 STEP_FUNCTION_ARN = os.environ.get('STEP_FUNCTION_ARN')
 
 @app.get("/", response_class=HTMLResponse)
 async def root():
     """Landing page with API documentation"""
-    html_content = """
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Bitget Trading Orders API</title>
-        <style>
-            body { font-family: Arial, sans-serif; margin: 40px; }
-            .endpoint { background: #f5f5f5; padding: 15px; margin: 10px 0; border-radius: 5px; }
-            .method { color: white; padding: 5px 10px; border-radius: 3px; }
-            .get { background-color: #61affe; }
-            .post { background-color: #49cc90; }
-            code { background: #f0f0f0; padding: 2px 5px; border-radius: 3px; }
-        </style>
-    </head>
-    <body>
-        <h1>🚀 Bitget Trading Orders API</h1>
-        <p>API completa para extraer órdenes de trading usando AWS Lambda y Step Functions</p>
-        
-        <h2>📋 Endpoints Disponibles</h2>
-        
-        <div class="endpoint">
-            <span class="method get">GET</span> <strong>/health</strong>
-            <p>Health check del sistema</p>
-        </div>
-        
-        <div class="endpoint">
-            <span class="method post">POST</span> <strong>/extract-orders</strong>
-            <p>Extraer órdenes usando Step Function (flujo completo)</p>
-            <code>{"symbols": ["BTCUSDT", "ETHUSDT"], "test_mode": false}</code>
-        </div>
-        
-        <div class="endpoint">
-            <span class="method post">POST</span> <strong>/extract-single-symbol</strong>
-            <p>Extraer órdenes de un símbolo específico</p>
-            <code>{"symbol": "BTCUSDT"}</code>
-        </div>
-        
-        <div class="endpoint">
-            <span class="method get">GET</span> <strong>/get-symbols</strong>
-            <p>Obtener lista de símbolos disponibles</p>
-        </div>
-        
-        <div class="endpoint">
-            <span class="method get">GET</span> <strong>/execution-status/{execution_arn}</strong>
-            <p>Verificar estado de una ejecución de Step Function</p>
-        </div>
-        
-        <div class="endpoint">
-            <span class="method get">GET</span> <strong>/docs</strong>
-            <p>Documentación interactiva Swagger</p>
-        </div>
-        
-        <h2>🧪 Ejemplos de Uso</h2>
-        <pre>
-# Extraer órdenes de múltiples símbolos
-curl -X POST "/extract-orders" -H "Content-Type: application/json" \\
-  -d '{"symbols": ["BTCUSDT", "ETHUSDT", "ADAUSDT"]}'
-
-# Extraer órdenes de un símbolo
-curl -X POST "/extract-single-symbol" -H "Content-Type: application/json" \\
-  -d '{"symbol": "BTCUSDT"}'
-        </pre>
-        
-        <p><a href="/docs">📖 Ver documentación completa</a></p>
-    </body>
-    </html>
-    """
+    with open('src/api/index.html', 'r') as f:
+        html_content = f.read()
+    
+    docs_href = stage_path('docs')
+    health_href = stage_path('health')
+    symbols_href = stage_path('get-symbols')
+    extract_orders_href = stage_path('extract-orders')
+    extract_single_href = stage_path('extract-single-symbol')
+    base_path_hint = STAGE_PREFIX if STAGE_PREFIX else '/'
+    
+    html_content = html_content.replace('href="/health"', f'href="{health_href}"')
+    html_content = html_content.replace('href="/get-symbols"', f'href="{symbols_href}"')
+    html_content = html_content.replace('href="/docs"', f'href="{docs_href}"')
+    html_content = html_content.replace('"/extract-orders"', f'"{extract_orders_href}"')
+    html_content = html_content.replace('"/extract-single-symbol"', f'"{extract_single_href}"')
+    html_content = html_content.replace('</body>', f'<p style="font-size: 0.9em; color: #555;">Base path para este despliegue: <code>{base_path_hint}</code></p></body>')
+    
     return HTMLResponse(content=html_content)
+
+@app.get("/docs", include_in_schema=False)
+async def custom_swagger_ui():
+    """Swagger UI con ruta compatible con API Gateway stages"""
+    return get_swagger_ui_html(
+        openapi_url=stage_path('openapi.json'),
+        title="Bitget Trading Orders API - Docs"
+    )
 
 @app.get("/health")
 async def health_check():
@@ -141,7 +113,7 @@ async def extract_orders(request: OrderExtractionRequest):
         symbols = request.symbols
         if not symbols:
             try:
-                coordinator_response = lambda_client.invoke(
+                coordinator_response = coordinator_lambda_handler.get_all_orders_secuencial(
                     FunctionName='bitget-coordinator',
                     Payload=json.dumps({"test_mode": request.test_mode})
                 )
@@ -165,7 +137,6 @@ async def extract_orders(request: OrderExtractionRequest):
             name=execution_name,
             input=json.dumps({
                 "symbols": symbols,
-                "timestamp": int(time.time() * 1000)
             })
         )
         

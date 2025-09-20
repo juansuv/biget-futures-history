@@ -113,7 +113,6 @@ def start_step_function(step_function_arn: str, symbols: List[str]) -> None:
         
         input_data = {
             'symbols': symbols,
-            'timestamp': int(time.time() * 1000)
         }
         
         stepfunctions.start_execution(

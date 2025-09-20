@@ -99,9 +99,7 @@ Resources:
                     "Parameters": {
                       "FunctionName": "${SymbolProcessorFunction}",
                       "Payload": {
-                        "symbol.$": "$",
-                        "timestamp.$": "$.timestamp"
-                      }
+                        "symbol.$": "$"                      }
                     },
                     "ResultPath": "$.result",
                     "End": true
@@ -138,6 +136,7 @@ Resources:
       Environment:
         Variables:
           STEP_FUNCTION_ARN: !Ref OrderExtractionStateMachine
+          FASTAPI_ROOT_PATH: /Prod
       Policies:
         - StepFunctionsExecutionPolicy:
             StateMachineName: !GetAtt OrderExtractionStateMachine.Name

@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Bitget Trading Orders API</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        .endpoint { background: #f5f5f5; padding: 15px; margin: 10px 0; border-radius: 5px; }
+        .method { color: white; padding: 5px 10px; border-radius: 3px; }
+        .get { background-color: #61affe; }
+        .post { background-color: #49cc90; }
+        code { background: #f0f0f0; padding: 2px 5px; border-radius: 3px; }
+    </style>
+</head>
+<body>
+    <h1>🚀 Bitget Trading Orders API</h1>
+    <p>API completa para extraer órdenes de trading usando AWS Lambda y Step Functions</p>
+    
+    <h2>📋 Endpoints Disponibles</h2>
+    
+    <div class="endpoint">
+        <span class="method get">GET</span> <strong><a href="/health">/health</a></strong>
+        <p>Health check del sistema</p>
+    </div>
+    
+    <div class="endpoint">
+        <span class="method post">POST</span> <strong>/extract-orders</strong>
+        <p>Extraer órdenes usando Step Function (flujo completo)</p>
+        <code>{"symbols": ["BTCUSDT", "ETHUSDT"], "test_mode": false}</code>
+    </div>
+    
+    <div class="endpoint">
+        <span class="method post">POST</span> <strong>/extract-single-symbol</strong>
+        <p>Extraer órdenes de un símbolo específico</p>
+        <code>{"symbol": "BTCUSDT"}</code>
+    </div>
+    
+    <div class="endpoint">
+        <span class="method get">GET</span> <strong><a href="/get-symbols">/get-symbols</a></strong>
+        <p>Obtener lista de símbolos disponibles</p>
+    </div>
+    
+    <div class="endpoint">
+        <span class="method get">GET</span> <strong>/execution-status/{execution_arn}</strong>
+        <p>Verificar estado de una ejecución de Step Function</p>
+    </div>
+    
+    <div class="endpoint">
+        <span class="method get">GET</span> <strong>/docs</strong>
+        <p>Documentación interactiva Swagger</p>
+    </div>
+
+    <h2>🧪 Ejemplos de Uso</h2>
+    <pre>
+# Extraer órdenes de múltiples símbolos
+curl -X POST "/extract-orders" -H "Content-Type: application/json" \
+  -d '{"symbols": ["BTCUSDT", "ETHUSDT", "ADAUSDT"]}'
+
+# Extraer órdenes de un símbolo
+curl -X POST "/extract-single-symbol" -H "Content-Type: application/json" \
+  -d '{"symbol": "BTCUSDT"}'
+    </pre>
+    
+    <p><a href="/docs">📖 Ver documentación completa</a></p>
+</body>
+</html>

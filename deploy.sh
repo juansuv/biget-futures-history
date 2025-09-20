@@ -24,6 +24,7 @@ fi
 # Configuration
 STACK_NAME="bitget-api"
 TEMPLATE_FILE="template_complete.yaml"
+BUILT_TEMPLATE=".aws-sam/build/template.yaml"
 
 # Function to watch CloudWatch logs
 watch_logs() {
@@ -269,10 +270,11 @@ fi
 echo ""
 echo "🚀 Deploying stack with CloudWatch logs enabled..."
 sam deploy \
-    --template-file $TEMPLATE_FILE \
+    --template-file $BUILT_TEMPLATE \
     --stack-name $STACK_NAME \
     --capabilities CAPABILITY_IAM \
     --no-confirm-changeset \
+    --resolve-s3 \
     --parameter-overrides \
         EnableApiGatewayLogs=true
 
