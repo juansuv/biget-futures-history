@@ -399,6 +399,19 @@ async def download_result(execution_arn_encoded: str):
     """
     Descargar resultado JSON del Step Function
     """
+    return await _download_result_internal(execution_arn_encoded, debug=False)
+
+@app.get("/download-result-debug/{execution_arn_encoded}")
+async def download_result_debug(execution_arn_encoded: str):
+    """
+    Descargar resultado JSON del Step Function con información de debug
+    """
+    return await _download_result_internal(execution_arn_encoded, debug=True)
+
+async def _download_result_internal(execution_arn_encoded: str, debug: bool = False):
+    """
+    Descargar resultado JSON del Step Function
+    """
     try:
         # Decodificar ARN
         execution_arn = execution_arn_encoded.replace("_", ":")
@@ -415,8 +428,15 @@ async def download_result(execution_arn_encoded: str):
         if "output" not in response:
             raise HTTPException(status_code=404, detail="No output available")
 
-        # Parsear el output para obtener el resultado final
+        # Parse el output para obtener el resultado final
         output = json.loads(response["output"])
+
+        # Debug info
+        debug_info = {
+            "bucket_env": os.environ.get("RESULTS_BUCKET"),
+            "execution_arn": execution_arn,
+            "execution_status": response["status"]
+        } if debug else None
 
         # Extraer el resultado del collect_result
         final_result = None
@@ -428,21 +448,56 @@ async def download_result(execution_arn_encoded: str):
                 payload = json.loads(payload)
             if "body" in payload:
                 body = json.loads(payload["body"])
+                
+                if debug:
+                    debug_info.update({
+                        "body_keys": list(body.keys()),
+                        "orders_truncated": body.get("orders_truncated"),
+                        "s3_key": body.get("s3_key"),
+                        "s3_bucket": body.get("s3_bucket")
+                    })
+                
                 # Check if result was stored in S3
                 if body.get("orders_truncated") and body.get("s3_key"):
                     s3_key = body["s3_key"]
                     bucket_name = body.get("s3_bucket", os.environ.get("RESULTS_BUCKET"))
                     
+                    print(f"Attempting to download from S3: s3://{bucket_name}/{s3_key}")
+                    
                     # Download from S3
                     s3_client = boto3.client("s3")
-                    s3_response = s3_client.get_object(Bucket=bucket_name, Key=s3_key)
-                    final_result = json.loads(s3_response["Body"].read().decode("utf-8"))
+                    try:
+                        s3_response = s3_client.get_object(Bucket=bucket_name, Key=s3_key)
+                        final_result = json.loads(s3_response["Body"].read().decode("utf-8"))
+                        print(f"Successfully downloaded result from S3: {len(final_result.get('orders', []))} orders")
+                    except Exception as s3_error:
+                        print(f"S3 error: {s3_error}")
+                        print(f"Bucket: {bucket_name}, Key: {s3_key}")
+                        print(f"Environment RESULTS_BUCKET: {os.environ.get('RESULTS_BUCKET')}")
+                        
+                        if debug:
+                            return {
+                                "error": "S3 access failed",
+                                "s3_error": str(s3_error),
+                                "debug_info": debug_info,
+                                "bucket_name": bucket_name,
+                                "s3_key": s3_key
+                            }
+                        
+                        raise HTTPException(status_code=500, detail=f"S3 access error: {s3_error}")
                 else:
                     final_result = body
             else:
                 final_result = payload
         else:
             final_result = output
+            
+        # Add debug info if requested
+        if debug and debug_info:
+            if isinstance(final_result, dict):
+                final_result["debug_info"] = debug_info
+            else:
+                final_result = {"result": final_result, "debug_info": debug_info}
 
         # Crear nombre de archivo con timestamp
         timestamp = int(time.time())

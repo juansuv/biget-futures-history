@@ -39,7 +39,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             'symbols_processed': combined_result['symbols_processed'],
             'symbols_failed': combined_result['symbols_failed'],
             's3_key': s3_key,
-            's3_bucket': os.environ.get('RESULTS_BUCKET', 'bitget-trading-results'),
+            's3_bucket': os.environ.get('RESULTS_BUCKET'),
             'orders_truncated': True
         }
         
@@ -195,7 +195,7 @@ def store_result_in_s3(result: Dict[str, Any], execution_arn: str = None) -> str
     """
     try:
         s3_client = boto3.client('s3')
-        bucket_name = os.environ.get('RESULTS_BUCKET', 'bitget-trading-results')
+        bucket_name = os.environ.get('RESULTS_BUCKET')
         
         # Generate unique key
         timestamp = int(time.time())

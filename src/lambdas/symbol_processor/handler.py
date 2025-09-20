@@ -57,7 +57,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 'orders_count': len(orders),
                 'orders': [],  # Empty to avoid data limit
                 's3_key': s3_key,
-                's3_bucket': os.environ.get('RESULTS_BUCKET', 'bitget-trading-results'),
+                's3_bucket': os.environ.get('RESULTS_BUCKET'),
                 'stored_in_s3': True,
                 'processed_at': int(time.time() * 1000)
             }
@@ -181,7 +181,7 @@ def store_orders_in_s3(symbol: str, orders: List[Dict[str, Any]]) -> str:
     """
     try:
         s3_client = boto3.client('s3')
-        bucket_name = os.environ.get('RESULTS_BUCKET', 'bitget-trading-results')
+        bucket_name = os.environ.get('RESULTS_BUCKET')
         
         # Generate unique key for this symbol
         timestamp = int(time.time())
