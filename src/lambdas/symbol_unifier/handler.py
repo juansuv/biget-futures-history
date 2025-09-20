@@ -103,9 +103,8 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         # Ordenar símbolos por frecuencia (más activos primero) y luego alfabéticamente
         sorted_symbols = sorted(all_symbols, key=lambda x: (-symbol_frequency[x], x))
         
-        # Limitar a un número manejable de símbolos
-        max_symbols = 350  # Límite para evitar timeouts en el procesamiento posterior
-        final_symbols = sorted_symbols[:max_symbols]
+        # Limitar a un número optimizado de símbolos
+        final_symbols = sorted_symbols
         
         # Estadísticas
         total_unique_symbols = len(all_symbols)
@@ -117,26 +116,13 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         print(f"- Total unique symbols found: {total_unique_symbols}")
         print(f"- Symbols selected for processing: {total_processing_symbols}")
         
-        # Preparar resultado
+        # Preparar resultado - solo símbolos para optimizar velocidad
         result = {
             'statusCode': 200,
-            'message': f'Successfully unified symbols from {successful_windows} windows',
-            'symbols': final_symbols,
-            'total_unique_symbols': total_unique_symbols,
-            'processing_symbols_count': total_processing_symbols,
-            'successful_windows': successful_windows,
-            'failed_windows': failed_windows,
-            'window_stats': window_stats,
-            'symbol_frequency_top10': dict(symbol_frequency.most_common(10)),
-            'processing_timestamp': int(time.time() * 1000),
-            'truncated': total_unique_symbols > max_symbols
+            'symbols': final_symbols
         }
         
-        # Opcional: Guardar estadísticas detalladas en S3
-        try:
-            save_detailed_stats_to_s3(result, all_symbols, symbol_frequency)
-        except Exception as e:
-            print(f"Warning: Could not save detailed stats to S3: {e}")
+        # Skip S3 stats saving for speed optimization
         
         return result
         
@@ -144,8 +130,6 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         print(f"Error in symbol unifier: {e}")
         return {
             'statusCode': 500,
-            'error': str(e),
-            'message': 'Error unifying symbols',
             'symbols': []
         }
 

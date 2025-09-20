@@ -213,7 +213,7 @@ Resources:
             "DiscoverSymbolsInParallel": {
               "Type": "Map",
               "ItemsPath": "$.time_ranges.Payload.time_windows",
-              "MaxConcurrency": 8,
+              "MaxConcurrency": 10,
               "Iterator": {
                 "StartAt": "SearchSymbolsInWindow",
                 "States": {
@@ -244,7 +244,7 @@ Resources:
             "ProcessSymbolsInParallel": {
               "Type": "Map",
               "ItemsPath": "$.unified_symbols.Payload.symbols",
-              "MaxConcurrency": 15,
+              "MaxConcurrency": 10,
               "Iterator": {
                 "StartAt": "ProcessSingleSymbol",
                 "States": {

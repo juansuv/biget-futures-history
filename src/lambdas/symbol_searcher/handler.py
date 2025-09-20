@@ -78,7 +78,7 @@ def search_symbols_in_window(client: Client, start_time: int, end_time: int, win
     try:
         last_end_id = ""
         page = 1
-        max_pages = 50  # Límite de páginas por ventana
+        max_pages = 30  # Límite optimizado de páginas por ventana
         
         print(f"Searching symbols in window {window_id} from {start_time} to {end_time}")
         
@@ -113,8 +113,8 @@ def search_symbols_in_window(client: Client, start_time: int, end_time: int, win
                 
                 print(f"Window {window_id}, page {page}: Found {len(page_symbols)} new symbols, total: {len(symbols)}")
                 
-                # Early exit si encontramos muchos símbolos
-                if len(symbols) >= 100:
+                # Early exit si encontramos suficientes símbolos
+                if len(symbols) >= 60:
                     print(f"Window {window_id}: Found enough symbols ({len(symbols)}), stopping early")
                     break
                 

@@ -12,9 +12,8 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     print("Symbol processor lambda invoked")
     
-    # Add random delay to avoid thundering herd
-    initial_delay = random.uniform(0.1, 2.0)
-    time.sleep(initial_delay)
+    # Pausa más larga para respetar rate limits
+    time.sleep(0.2)
     
     try:
         print(f"Processing event: {event}")
@@ -166,7 +165,7 @@ def get_all_orders_for_symbol(client: Client, symbol: str) -> List[Dict[str, Any
                     break
                     
                 # Increased delay to respect rate limits
-                time.sleep(0.5)
+                time.sleep(0.1)
                 
             except Exception as e:
                 print(f"Error fetching page {page_count} for symbol {symbol}: {e}")
