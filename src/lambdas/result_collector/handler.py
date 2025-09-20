@@ -35,8 +35,8 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             # Combine and process all results
             combined_result = combine_and_sort_orders(parallel_results)
         
-        # Store large result in S3 and return minimal summary
-        s3_result = store_result_in_s3(combined_result, execution_arn=event.get('execution_arn'))
+        # Store large result in S3 and return minimal summary  
+        s3_result = store_result_in_s3(combined_result.get('orders', []), execution_arn=event.get('execution_arn'))
         
         # Check if S3 storage was successful
         if s3_result:
@@ -166,12 +166,20 @@ def combine_and_sort_orders(parallel_results: List[Dict[str, Any]]) -> Dict[str,
     print(f"After global deduplication: {len(all_orders)} orders")
     
     # Sort all orders chronologically (newest first)
-    all_orders.sort(key=lambda x: int(x.get('createTime', 0)), reverse=True)
+    def safe_ctime_parse(order):
+        try:
+            ctime = order.get('cTime', '0')
+            # Handle both string and int cases
+            return int(str(ctime))
+        except (ValueError, TypeError):
+            return 0
+    
+    all_orders.sort(key=safe_ctime_parse, reverse=True)
     
     # Generate statistics
-    total_orders = len(all_orders)
-    symbols_processed = len(successful_symbols)
-    symbols_failed = len(failed_symbols)
+    # total_orders = len(all_orders)
+    # symbols_processed = len(successful_symbols)
+    # symbols_failed = len(failed_symbols)
     
     # # Group orders by symbol for summary
     # orders_by_symbol = {}
@@ -182,19 +190,10 @@ def combine_and_sort_orders(parallel_results: List[Dict[str, Any]]) -> Dict[str,
     #     orders_by_symbol[symbol].append(order)
     
     # Calculate date range
-    date_range = get_date_range(all_orders)
+    #date_range = get_date_range(all_orders)
     
     return {
         'message': 'Orders successfully processed and combined',
-        'processing_timestamp': int(time.time() * 1000),
-        'total_orders': total_orders,
-        'symbols_processed': symbols_processed,
-        'symbols_failed': symbols_failed,
-        'date_range': date_range,
-        'successful_symbols': successful_symbols,
-        'failed_symbols': failed_symbols,
-        'processing_summary': processing_summary,
-        #'orders_by_symbol_count': {symbol: len(orders) for symbol, orders in orders_by_symbol.items()},
         'orders': all_orders
     }
 
@@ -228,9 +227,9 @@ def get_date_range(orders: List[Dict[str, Any]]) -> Dict[str, Any]:
         'total_days': round(total_days, 2)
     }
 
-def store_result_in_s3(result: Dict[str, Any], execution_arn: str = None) -> str:
+def store_result_in_s3(all_orders: List[Dict[str, Any]], execution_arn: str = None) -> str:
     """
-    Store large result in S3 and return the S3 key with presigned URL
+    Store sorted orders in S3 and return the S3 key with presigned URL
     """
     try:
         s3_client = boto3.client('s3')
@@ -241,9 +240,9 @@ def store_result_in_s3(result: Dict[str, Any], execution_arn: str = None) -> str
         execution_id = execution_arn.split(':')[-1] if execution_arn else 'unknown'
         s3_key = f"results/{timestamp}_{execution_id}.json"
         
-        # Prepare CLEAN JSON with only orders
+        # Prepare CLEAN JSON with only sorted orders
         clean_result = {
-            'orders': result.get('orders', [])
+            'orders': all_orders
         }
         
         # Upload to S3 with public read permissions
@@ -370,7 +369,14 @@ def collect_results_from_s3() -> Dict[str, Any]:
         print(f"After global deduplication: {len(all_orders)} orders")
         
         # Sort all orders chronologically (newest first)
-        all_orders.sort(key=lambda x: int(x.get('createTime', 0)), reverse=True)
+        def safe_ctime_parse(order):
+            try:
+                ctime = order.get('cTime', '0')
+                return int(str(ctime))
+            except (ValueError, TypeError):
+                return 0
+        
+        all_orders.sort(key=safe_ctime_parse, reverse=True)
         
         # Calculate date range
         date_range = get_date_range(all_orders)

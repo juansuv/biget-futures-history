@@ -124,7 +124,7 @@ Resources:
       FunctionName: bitget-symbol-processor
       CodeUri: src/lambdas/symbol_processor/
       Handler: handler.lambda_handler
-      MemorySize: 900
+      MemorySize: 2048
       Environment:
         Variables:
           RESULTS_BUCKET: !Ref ResultsBucket
@@ -144,7 +144,7 @@ Resources:
       FunctionName: bitget-result-collector
       CodeUri: src/lambdas/result_collector/
       Handler: handler.lambda_handler
-      MemorySize: 2000
+      MemorySize: 2048
       Environment:
         Variables:
           RESULTS_BUCKET: !Ref ResultsBucket
