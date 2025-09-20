@@ -4,8 +4,9 @@ import boto3
 import time
 from typing import Dict, Any, Optional, List
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.openapi.utils import get_openapi
 from pydantic import BaseModel
 from mangum import Mangum
 
@@ -26,7 +27,8 @@ app = FastAPI(
     version="2.0.0",
     root_path=ROOT_PATH,
     docs_url=None,
-    redoc_url=None
+    redoc_url=None,
+    openapi_url=None
 )
 
 # Pydantic models
@@ -93,24 +95,52 @@ async def root():
     
     return HTMLResponse(content=html_content)
 
-@app.get("/openapi.json", include_in_schema=False)
-async def get_openapi_json():
-    """OpenAPI JSON schema endpoint"""
-    from fastapi.openapi.utils import get_openapi
-    return get_openapi(
+def custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+    openapi_schema = get_openapi(
         title=app.title,
         version=app.version,
         description=app.description,
-        routes=app.routes
+        routes=app.routes,
     )
+    # Remove the problematic servers configuration
+    openapi_schema.pop("servers", None)
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+@app.get("/openapi.json", include_in_schema=False)
+async def get_openapi_endpoint():
+    return JSONResponse(custom_openapi())
 
 @app.get("/docs", include_in_schema=False)
-async def custom_swagger_ui():
-    """Swagger UI con ruta compatible con API Gateway stages"""
+async def get_swagger_ui():
     return get_swagger_ui_html(
-        openapi_url=stage_path('openapi.json'),
-        title="Bitget Trading Orders API - Docs"
+        openapi_url=stage_path("openapi.json"),
+        title=app.title + " - Swagger UI",
+        swagger_js_url="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js",
+        swagger_css_url="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui.css",
     )
+
+@app.get("/docs-static", response_class=HTMLResponse, include_in_schema=False)
+async def docs_static():
+    """Static API documentation"""
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    docs_path = os.path.join(current_dir, 'templates', 'docs.html')
+    
+    try:
+        with open(docs_path, 'r', encoding='utf-8') as f:
+            html_content = f.read()
+        return HTMLResponse(content=html_content)
+    except FileNotFoundError:
+        return HTMLResponse(content="""
+        <html>
+        <body>
+            <h1>📖 API Documentation</h1>
+            <p>Documentation file not found. <a href="/">Return to main page</a></p>
+        </body>
+        </html>
+        """, status_code=404)
 
 @app.get("/health")
 async def health_check():

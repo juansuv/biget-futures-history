@@ -99,9 +99,9 @@ Resources:
                     "Parameters": {
                       "FunctionName": "${SymbolProcessorFunction}",
                       "Payload": {
-                        "symbol.$": "$"                      }
+                        "symbol.$": "$"
+                      }
                     },
-                    "ResultPath": "$.result",
                     "End": true
                   }
                 }
