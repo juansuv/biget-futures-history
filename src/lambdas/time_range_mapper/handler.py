@@ -13,7 +13,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         
         # Configuración de rangos de tiempo
         end_time = int(time.time() * 1000)  # Ahora en milisegundos
-        start_time = end_time - (8 * 365 * 24 * 60 * 60 * 1000)  # 8 años atrás
+        start_time = end_time - (9 * 365 * 24 * 60 * 60 * 1000)  # 8 años atrás
         
         # Tamaño de ventana: 3 meses para mayor paralelismo
         window_size_ms = 3 * 30 * 24 * 60 * 60 * 1000  # 3 meses en milisegundos

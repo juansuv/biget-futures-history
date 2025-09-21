@@ -57,7 +57,7 @@ def lambda_handler(event, _):
 def get_all_orders_for_symbol(client: Client, symbol: str) -> List[Dict[str, Any]]:
     all_orders = []
     page_size = 100
-    max_pages = 90  # Prevent infinite loops
+    max_pages = 130  # Prevent infinite loops
     
     try:
         # Calculate time range (last 90 days for comprehensive history)
