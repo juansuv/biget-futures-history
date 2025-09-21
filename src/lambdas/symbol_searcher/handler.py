@@ -4,6 +4,33 @@ import os
 from typing import Dict, Any, List, Set
 from pybitget import Client
 
+SYMBOLS_DISCONTINUED = [
+  "10000WHYUSDT_UMCBL",
+  "AGTUSDT_UMCBL",
+  "ALPACAUSDT_UMCBL",
+  "BDXNUSDT_UMCBL",
+  "BNXUSDT_UMCBL",
+  "BROCCOLIF3BUSDT_UMCBL",
+  "BURGERUSDT_UMCBL",
+  "DARKUSDT_UMCBL",
+  "EOSUSDT_UMCBL",
+  "FOXYUSDT_UMCBL",
+  "JAILSTOOLUSDT_UMCBL",
+  "JELLYJELLYUSDT_UMCBL",
+  "LEVERUSDT_UMCBL",
+  "LUCEUSDT_UMCBL",
+  "MEMEFIUSDT_UMCBL",
+  "MKRUSDT_UMCBL",
+  "NCUSDT_UMCBL",
+  "NULSUSDT_UMCBL",
+  "OIKUSDT_UMCBL",
+  "PROSUSDT_UMCBL",
+  "SHMUSDT_UMCBL",
+  "STPTUSDT_UMCBL",
+  "TGTUSDT_UMCBL",
+  "TROYUSDT_UMCBL"
+]
+
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     Symbol Searcher Lambda: Busca todos los símbolos con trades en una ventana de tiempo específica
@@ -157,6 +184,11 @@ def all_symbols(client: Client, start_time: int, end_time: int) -> Set[str]:
             if symbol:
                 all_symbols.add(symbol)
         
+        # Add discontinued symbols to the set
+        for symbol in SYMBOLS_DISCONTINUED:
+            all_symbols.add(symbol)
+        
+        print(f"Total symbols found: {len(all_symbols)} (including {len(SYMBOLS_DISCONTINUED)} discontinued)")
         return all_symbols
         
     except Exception as e:

@@ -123,6 +123,11 @@ def get_all_orders_for_symbol(client: Client, symbol: str) -> List[Dict[str, Any
                     error_str = str(api_error).lower()
                     print(f"❌ {symbol} API error on page {page_count + 1}: {api_error}")
                     
+                    # Handle discontinued symbols (error code 40309)
+                    if '40309' in error_str or 'symbol has been removed' in error_str or 'removed' in error_str:
+                        print(f"⚠️ {symbol}: Symbol discontinued/removed, skipping with 0 orders")
+                        return []  # Return empty list for discontinued symbols
+                    
                     # Handle rate limiting: wait and retry same page
                     if '429' in error_str or 'too many requests' in error_str or 'rate limit' in error_str:
                         page_retries += 1
