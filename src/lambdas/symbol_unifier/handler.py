@@ -53,7 +53,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         # Ordenar símbolos por frecuencia (más activos primero) y luego alfabéticamente
         #final_symbols = sorted(all_symbols, key=lambda x: (-symbol_frequency[x], x))
         
-        print(f"Discovered {len(all_symbols)} unique symbols across {len(window_results)} windows")
+        print(f"Discovered {len(all_symbols)} unique symbols across {len(window_results)} windows, symbols: {all_symbols}")
         
         
         # Preparar resultado - solo símbolos para optimizar velocidad (convertir set a list)

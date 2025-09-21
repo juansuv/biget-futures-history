@@ -52,28 +52,34 @@ def lambda_handler(event, _):
         
     except Exception as e:
         print(f"❌ Symbol Processor error: {e}")
-        return {}
+        # CRITICAL: Raise error to fail Lambda completely for Step Function retry
+        raise e
 
 def get_all_orders_for_symbol(client: Client, symbol: str) -> List[Dict[str, Any]]:
     all_orders = []
     page_size = 100
-    max_pages = 130  # Prevent infinite loops
+    max_pages = 300  # Increased to prevent data loss (30k orders max per symbol)
     
     try:
-        # Calculate time range (last 90 days for comprehensive history)
-        end_time = int(time.time() * 1000)  # Ahora en milisegundos
-        start_time = end_time - (2 * 365 * 24 * 60 * 60 * 1000) 
+        # Calculate time range (FIXED: always same range for consistency)
+        end_time = int(time.time() * 1000)  # Current time
+        start_time = end_time - (9 * 365 * 24 * 60 * 60 * 1000)  # Always 9 years back
+        
+        print(f"🔍 {symbol}: Searching from {start_time} to {end_time} (9 years)") 
         
         last_end_id = ''
         page_count = 0
+        max_rate_limit_retries = 5 # Max 5 rate limit retries per page
         
         while page_count < max_pages:
-            retry_count = 0
-            max_retries = 3
             
-            while retry_count < max_retries:
+            
+            # Inner retry loop for the same page
+            page_success = False
+            page_retries = 0
+            
+            while not page_success and page_retries <= max_rate_limit_retries:
                 try:
-                    # Get order history for this symbol
                     response = client.mix_get_history_orders(
                         symbol=symbol,
                         startTime=str(start_time),
@@ -82,59 +88,78 @@ def get_all_orders_for_symbol(client: Client, symbol: str) -> List[Dict[str, Any
                         lastEndId=last_end_id,
                         isPre=False
                     )
-                    break  # Success, exit retry loop
+
+                    # SAFETY: Validate response structure
+                    if not response:
+                        print(f"⚠️ {symbol}: Empty response from API")
+                        break
+                        
+                    data = response.get('data', {})
+                    if not data:
+                        print(f"⚠️ {symbol}: No 'data' field in response")
+                        break
+
+                    orders = data.get('orderList', [])
+                    last_end_id = data.get('endId', '')
+                    next_flag = data.get('nextFlag', False)
+
+                    # SAFETY: Ensure orders is a list (API might return None)
+                    if orders is None:
+                        orders = []
+                        
+                    all_orders.extend(orders)
                     
-                except Exception as e:
-                    error_str = str(e).lower()
-                    if '429' in error_str or 'rate' in error_str or 'limit' in error_str:
-                        retry_count += 1
-                        if retry_count < max_retries:
+                    # DIAGNOSTIC: Log progress for each symbol
+                    print(f"📄 {symbol} page {page_count + 1}: +{len(orders)} orders, total: {len(all_orders)}, next_flag: {next_flag}")
+                    
+                    # Mark page as successfully processed
+                    page_success = True
+
+                    if not next_flag:
+                        print(f"✅ {symbol}: Naturally complete at page {page_count + 1} - {len(all_orders)} total orders")
+                        return all_orders  # Exit completely when done
+                
+                except Exception as api_error:
+                    error_str = str(api_error).lower()
+                    print(f"❌ {symbol} API error on page {page_count + 1}: {api_error}")
+                    
+                    # Handle rate limiting: wait and retry same page
+                    if '429' in error_str or 'too many requests' in error_str or 'rate limit' in error_str:
+                        page_retries += 1
+                        if page_retries <= max_rate_limit_retries:
+                            backoff_time = 0.5 + (page_retries * 0.3)  # Exponential backoff: 0.8s, 1.1s, 1.4s, etc.
+                            print(f"⏳ {symbol}: Rate limit hit (retry {page_retries}/{max_rate_limit_retries}), backing off {backoff_time:.1f}s...")
+                            time.sleep(backoff_time)
+                            # Continue inner loop to retry same page
                             continue
                         else:
-                            return all_orders
+                            print(f"🔴 CRITICAL: {symbol} exhausted rate limit retries on page {page_count + 1}")
+                            print(f"🔴 This page's orders will be LOST! Failing Lambda for complete retry.")
+                            raise api_error  # Fail Lambda completely to retry entire symbol
                     else:
-                        return all_orders
+                        # For other errors, fail the Lambda for retry
+                        print(f"💥 {symbol}: Non-rate-limit error, failing Lambda for retry")
+                        raise api_error
             
-            try:
-                
-                if not response or 'data' not in response:
-                    break
-                
-                orders_data = response['data']
-                if not orders_data or 'orderList' not in orders_data:
-                    break
-                
-                orders = orders_data['orderList']
-                ()
-                if not orders:
-                    break
-                all_orders.extend(orders)
-                
-                #print("all_orders", all_orders)                
-                # Add orders to our collection
-                # for order in orders:
-                #     # Ensure we only get futures orders
-                #     all_orders.append(order)
-                
-                # Check if there are more pages
-                if 'endId' in orders_data and orders_data['endId']:
-                    last_end_id = orders_data['endId']
-                    page_count += 1
-                else:
-                    break
-                    
-                # Increased delay to respect rate limits
-                #time.sleep(0.1)
-                
-            except Exception as e:
-                break
+            # Move to next page
+            page_count += 1
+        
+        # CRITICAL: Check if we hit max_pages limit (potential data loss)
+        if page_count >= max_pages:
+            print(f"🔴 TRUNCATED: {symbol} hit max_pages limit ({max_pages})! POTENTIAL DATA LOSS!")
+            print(f"🔴 Last endId: {last_end_id}, Total orders collected: {len(all_orders)}")
+            print(f"🔴 This symbol may have more orders that were NOT retrieved")
+        else:
+            print(f"📊 {symbol}: Completed pagination, {len(all_orders)} orders in {page_count} pages")
         
         # Sort orders by creation time (newest first)
         #all_orders.sort(key=lambda x: int(x.get('cTime', 0)), reverse=True)
         return all_orders
         
-    except Exception as e:
-        return []
+    except Exception as general_error:
+        print(f"❌ {symbol}: General error - {general_error}")
+        # CRITICAL: Raise error to fail Lambda for retry  
+        raise general_error
 
 def store_orders_in_s3(symbol: str, orders: List[Dict[str, Any]]):
     """

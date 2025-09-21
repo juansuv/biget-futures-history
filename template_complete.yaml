@@ -93,7 +93,7 @@ Resources:
       FunctionName: bitget-symbol-searcher
       CodeUri: src/lambdas/symbol_searcher/
       Handler: handler.lambda_handler
-      MemorySize: 512   # Reduced - symbol search doesn't need much memory  
+      MemorySize: 1024 
       Timeout: 480     # 8 minutes - aggressive timeout for speed
 
   # Symbol Unifier Lambda Function
@@ -241,7 +241,7 @@ Resources:
             "DiscoverSymbolsInParallel": {
               "Type": "Map",
               "ItemsPath": "$.time_ranges.Payload.time_windows",
-              "MaxConcurrency": 10,
+              "MaxConcurrency": 3,
               "Iterator": {
                 "StartAt": "SearchSymbolsInWindow",
                 "States": {

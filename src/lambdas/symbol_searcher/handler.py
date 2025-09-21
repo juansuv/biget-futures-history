@@ -78,69 +78,62 @@ def search_symbols_in_window(client: Client, start_time: int, end_time: int, win
     try:
         last_end_id = ""
         page = 1
-        max_pages = 130  # Límite optimizado de páginas por ventana
+        max_pages = 200  # Límite optimizado de páginas por ventana
         
         print(f"Searching symbols in window {window_id} from {start_time} to {end_time}")
         
-        while page <= max_pages:
-            try:
-                # Obtener órdenes históricas
-                resp = client.mix_get_productType_history_orders(
-                    productType="umcbl",  # USDT-M futures
-                    startTime=str(start_time),
-                    endTime=str(end_time),
-                    pageSize="100",  # Máximo permitido
-                    lastEndId=last_end_id,
-                    isPre=False,
-                )
+        symbols = all_symbols(client, start_time, end_time)
+        # while page <= max_pages:
+        #     try:
+        #         # Obtener órdenes históricas
+        #         resp = client.mix_get_productType_history_orders(
+        #             productType="umcbl",  # USDT-M futures
+        #             startTime=str(start_time),
+        #             endTime=str(end_time),
+        #             pageSize=100,  # Máximo permitido
+        #             lastEndId=last_end_id,
+        #             isPre=False,
+        #         )
                 
-                data = (resp or {}).get("data") or {}
-                order_list = data.get("orderList") or []
-                next_flag = data.get("nextFlag")
-                end_id = data.get("endId")
+        #         data = (resp or {}).get("data") or {}
+        #         order_list = data.get("orderList") or []
+        #         next_flag = data.get("nextFlag")
+        #         end_id = data.get("endId")
                 
-                if not order_list:
-                    if not next_flag:  # Only stop if API confirms no more data
-                        print(f"Window {window_id}: API confirms no more data at page {page}")
-                        break
-                    # Continue if next_flag is True, might be temporary empty page
-                    page += 1
-                    continue
+        #         if not order_list:
+        #             print(f"Window {window_id}: No more orders found, stopping at page {page}")
+        #             break
                 
-                # Extraer símbolos únicos de esta página
-                page_symbols = set()
-                for order in order_list:
-                    sym = order.get("symbol")
-                    if sym:
-                        symbols.add(sym)
-                        page_symbols.add(sym)
+        #         # Extraer símbolos únicos de esta página
+        #         page_symbols = set()
+        #         for order in order_list:
+        #             sym = order.get("symbol")
+        #             if sym:
+        #                 symbols.add(sym)
+        #                 page_symbols.add(sym)
                 
-                print(f"Window {window_id}, page {page}: Found {len(page_symbols)} new symbols, total: {len(symbols)}")
+        #         print(f"Window {window_id}, page {page}: Found {len(page_symbols)} new symbols, total: {len(symbols)}")
                 
-                # Early exit si encontramos suficientes símbolos
-                if len(symbols) >= 360:
-                    print(f"Window {window_id}: Found enough symbols ({len(symbols)}), stopping early")
-                    break
                 
-                if not next_flag:
-                    print(f"Window {window_id}: No more pages available")
-                    break
+        #         if not next_flag:
+        #             print(f"Window {window_id}: No more pages available")
+        #             break
                     
-                last_end_id = end_id or order_list[-1].get("orderId", "")
-                page += 1
+        #         last_end_id = end_id or order_list[-1].get("orderId", "")
+        #         page += 1
                 
-                # Pausa más larga para respetar rate limits
-                #time.sleep(0.2)
+        #         # Pausa más larga para respetar rate limits
+        #         #time.sleep(0.2)
                 
-            except Exception as api_error:
-                error_msg = str(api_error).lower()
-                if 'rate' in error_msg or '429' in error_msg:
-                    print(f"Window {window_id}: Rate limit hit, backing off...")
-                    #time.sleep(0.2)  # Backoff más largo
-                    continue
-                else:
-                    print(f"Window {window_id}: API error on page {page}: {api_error}")
-                    break
+        #     except Exception as api_error:
+        #         error_msg = str(api_error).lower()
+        #         if 'rate' in error_msg or '429' in error_msg:
+        #             print(f"Window {window_id}: Rate limit hit, backing off...")
+        #             #time.sleep(0.2)  # Backoff más largo
+        #             continue
+        #         else:
+        #             print(f"Window {window_id}: API error on page {page}: {api_error}")
+        #             break
         
         print(f"Window {window_id}: Completed search, found {len(symbols)} symbols in {page-1} pages")
         return symbols
@@ -148,3 +141,24 @@ def search_symbols_in_window(client: Client, start_time: int, end_time: int, win
     except Exception as e:
         print(f"Error searching symbols in window {window_id}: {e}")
         return symbols  # Retorna lo que haya encontrado hasta ahora
+
+def all_symbols(client: Client, start_time: int, end_time: int) -> Set[str]:
+    """
+    Obtiene todos los símbolos con actividad en el rango de tiempo dado
+    """
+    all_symbols = set()
+    
+    try:
+        response = client.mix_get_symbols_info(productType="umcbl")  # USDT-M futures
+        print(f"Fetched products from exchange, {response}")
+        products = response.get("data", [])
+        for product in products:
+            symbol = product.get("symbol")
+            if symbol:
+                all_symbols.add(symbol)
+        
+        return all_symbols
+        
+    except Exception as e:
+        print(f"Error fetching all symbols: {e}")
+        return all_symbols  # Retorna lo que haya encontrado hasta ahora
