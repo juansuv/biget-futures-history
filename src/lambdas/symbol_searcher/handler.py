@@ -78,7 +78,7 @@ def search_symbols_in_window(client: Client, start_time: int, end_time: int, win
     try:
         last_end_id = ""
         page = 1
-        max_pages = 100  # Límite optimizado de páginas por ventana
+        max_pages = 130  # Límite optimizado de páginas por ventana
         
         print(f"Searching symbols in window {window_id} from {start_time} to {end_time}")
         
@@ -100,8 +100,12 @@ def search_symbols_in_window(client: Client, start_time: int, end_time: int, win
                 end_id = data.get("endId")
                 
                 if not order_list:
-                    print(f"Window {window_id}: No more orders found, stopping at page {page}")
-                    break
+                    if not next_flag:  # Only stop if API confirms no more data
+                        print(f"Window {window_id}: API confirms no more data at page {page}")
+                        break
+                    # Continue if next_flag is True, might be temporary empty page
+                    page += 1
+                    continue
                 
                 # Extraer símbolos únicos de esta página
                 page_symbols = set()

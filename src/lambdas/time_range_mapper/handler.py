@@ -13,10 +13,10 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         
         # Configuración de rangos de tiempo
         end_time = int(time.time() * 1000)  # Ahora en milisegundos
-        start_time = end_time - (9 * 365 * 24 * 60 * 60 * 1000)  # 8 años atrás
+        start_time = end_time - (2 * 365 * 24 * 60 * 60 * 1000)  # 8 años atrás
         
-        # Tamaño de ventana: 3 meses para mayor paralelismo
-        window_size_ms = 3 * 30 * 24 * 60 * 60 * 1000  # 3 meses en milisegundos
+        # Tamaño de ventana: 6 meses para balance velocidad/paralelismo  
+        window_size_ms = 3 * 30 * 24 * 60 * 60 * 1000  # 6 meses en milisegundos
         
         # Generar ventanas de tiempo
         time_windows = []
@@ -49,8 +49,8 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             'message': f'Generated {len(time_windows)} time windows for parallel symbol search',
             'time_windows': time_windows,
             'total_windows': len(time_windows),
-            'total_years': 8,
-            'window_size_months': 6
+            'total_years': 10,
+            'window_size_months': 3
         }
         
         return result

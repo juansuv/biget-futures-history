@@ -86,15 +86,15 @@ Resources:
       MemorySize: 256
       Timeout: 60
 
-  # Symbol Searcher Lambda Function
+  # Symbol Searcher Lambda Function (Optimized)
   SymbolSearcherFunction:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: bitget-symbol-searcher
       CodeUri: src/lambdas/symbol_searcher/
       Handler: handler.lambda_handler
-      MemorySize: 1024
-      Timeout: 900
+      MemorySize: 512   # Reduced - symbol search doesn't need much memory  
+      Timeout: 480     # 8 minutes - aggressive timeout for speed
 
   # Symbol Unifier Lambda Function
   SymbolUnifierFunction:
@@ -158,6 +158,33 @@ Resources:
                 - s3:GetObject
                 - s3:GetObjectVersion
                 - s3:DeleteObject
+              Resource: !Sub '${ResultsBucket.Arn}/*'
+            - Effect: Allow
+              Action:
+                - s3:ListBucket
+              Resource: !GetAtt ResultsBucket.Arn
+
+  # Analytics Processor Lambda Function
+  AnalyticsProcessorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: bitget-analytics-processor
+      CodeUri: src/lambdas/analytics_processor/
+      Handler: handler.lambda_handler
+      MemorySize: 1024  # Sufficient for pandas-only operations
+      Timeout: 600     # 10 minutes for analysis
+      Environment:
+        Variables:
+          RESULTS_BUCKET: !Ref ResultsBucket
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:PutObject
+                - s3:PutObjectAcl
+                - s3:GetObject
+                - s3:GetObjectVersion
               Resource: !Sub '${ResultsBucket.Arn}/*'
             - Effect: Allow
               Action:
@@ -295,11 +322,14 @@ Resources:
         Variables:
           STEP_FUNCTION_ARN: !Ref OrderExtractionStateMachine
           RESULTS_BUCKET: !Ref ResultsBucket
+          ANALYTICS_FUNCTION_NAME: !Ref AnalyticsProcessorFunction
       Policies:
         - StepFunctionsExecutionPolicy:
             StateMachineName: !GetAtt OrderExtractionStateMachine.Name
         - LambdaInvokePolicy:
             FunctionName: !Ref SymbolProcessorFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref AnalyticsProcessorFunction
         - Version: '2012-10-17'
           Statement:
             - Effect: Allow
@@ -388,3 +418,7 @@ Outputs:
   FastApiFunctionArn:
     Description: 'FastAPI Lambda Function ARN'
     Value: !GetAtt FastApiFunction.Arn
+
+  AnalyticsProcessorFunctionArn:
+    Description: 'Analytics Processor Lambda Function ARN'
+    Value: !GetAtt AnalyticsProcessorFunction.Arn

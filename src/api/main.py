@@ -13,15 +13,22 @@ app = FastAPI(
     version="3.0.0"
 )
 
-# Pydantic model
+# Pydantic models
 class OrderExtractionRequest(BaseModel):
     test_mode: bool = False
 
-# AWS client and environment
+class AnalyticsRequest(BaseModel):
+    execution_name: str = None
+    analysis_type: str = "full"  # 'full', 'summary', 'pnl', 'charts', 'regression'
+    days_back: int = 30
+
+# AWS clients and environment
 stepfunctions = boto3.client("stepfunctions")
 s3_client = boto3.client("s3")
+lambda_client = boto3.client("lambda")
 STEP_FUNCTION_ARN = os.environ.get("STEP_FUNCTION_ARN")
 RESULTS_BUCKET = os.environ.get("RESULTS_BUCKET")
+ANALYTICS_FUNCTION_NAME = os.environ.get("ANALYTICS_FUNCTION_NAME", "bitget-analytics-processor")
 
 @app.post("/extract-orders")
 async def extract_orders(request_data: OrderExtractionRequest):
@@ -148,6 +155,93 @@ async def get_execution_status(execution_name: str):
         return result
         
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/analytics")
+async def run_analytics(request_data: AnalyticsRequest):
+    """
+    Ejecutar análisis estadístico completo de las órdenes
+    """
+    try:
+        # Preparar payload para la Lambda de analytics
+        analytics_payload = {
+            "analysis_type": request_data.analysis_type,
+            "execution_name": request_data.execution_name,
+            "days_back": request_data.days_back
+        }
+        
+        print(f"🚀 Starting analytics with payload: {analytics_payload}")
+        
+        # Invocar Lambda de analytics de forma asíncrona
+        response = lambda_client.invoke(
+            FunctionName=ANALYTICS_FUNCTION_NAME,
+            InvocationType='RequestResponse',  # Síncrono para obtener resultado inmediato
+            Payload=json.dumps(analytics_payload)
+        )
+        
+        # Procesar respuesta
+        response_payload = json.loads(response['Payload'].read())
+        
+        if response_payload.get('statusCode') == 200:
+            analytics_result = json.loads(response_payload['body'])
+            
+            return {
+                "status": "completed",
+                "message": "Statistical analysis completed successfully",
+                "analysis_type": request_data.analysis_type,
+                "analytics_result": analytics_result
+            }
+        else:
+            error_body = json.loads(response_payload.get('body', '{}'))
+            raise HTTPException(
+                status_code=response_payload.get('statusCode', 500),
+                detail=error_body.get('error', 'Analytics processing failed')
+            )
+            
+    except Exception as e:
+        print(f"❌ Error in analytics endpoint: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/analytics/async/{execution_name}")
+async def run_analytics_async(execution_name: str, analysis_type: str = "full", days_back: int = 30):
+    """
+    Ejecutar análisis estadístico de forma asíncrona (no bloquea)
+    """
+    try:
+        # Preparar payload para la Lambda de analytics
+        analytics_payload = {
+            "analysis_type": analysis_type,
+            "execution_name": execution_name,
+            "days_back": days_back
+        }
+        
+        print(f"🚀 Starting async analytics with payload: {analytics_payload}")
+        
+        # Invocar Lambda de analytics de forma asíncrona
+        response = lambda_client.invoke(
+            FunctionName=ANALYTICS_FUNCTION_NAME,
+            InvocationType='Event',  # Asíncrono
+            Payload=json.dumps(analytics_payload)
+        )
+        
+        # Generar URL esperada del resultado
+        timestamp = int(time.time())
+        expected_s3_key = f"analytics/{timestamp}_{execution_name}_analysis.json"
+        expected_url = f"https://{RESULTS_BUCKET}.s3.amazonaws.com/{expected_s3_key}"
+        
+        return {
+            "status": "started",
+            "message": "Statistical analysis started successfully",
+            "execution_name": execution_name,
+            "analysis_type": analysis_type,
+            "estimated_completion_time": "1-3 minutes",
+            "expected_result_url": expected_url
+        }
+            
+    except Exception as e:
+        print(f"❌ Error in async analytics endpoint: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

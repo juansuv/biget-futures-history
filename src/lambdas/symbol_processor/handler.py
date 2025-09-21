@@ -61,8 +61,8 @@ def get_all_orders_for_symbol(client: Client, symbol: str) -> List[Dict[str, Any
     
     try:
         # Calculate time range (last 90 days for comprehensive history)
-        end_time = int(time.time() * 1000)
-        start_time = 1514764800000 # 2018-01-01 in milliseconds
+        end_time = int(time.time() * 1000)  # Ahora en milisegundos
+        start_time = end_time - (2 * 365 * 24 * 60 * 60 * 1000) 
         
         last_end_id = ''
         page_count = 0
